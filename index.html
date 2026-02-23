@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Blog Agent Pipeline v2</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --surface2: #1a1a1a;
+    --border: #2a2a2a;
+    --accent: #e8ff47;
+    --accent2: #47ffe8;
+    --accent3: #ff4747;
+    --text: #f0f0f0;
+    --muted: #666;
+    --agent-1: #e8ff47;
+    --agent-2: #47ffe8;
+    --agent-3: #ff8c47;
+    --agent-4: #b847ff;
+    --agent-5: #47ff8c;
+    --agent-6: #ff47b8;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(232,255,71,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(232,255,71,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  .header { margin-bottom: 48px; }
+
+  .header-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .header-tag::before {
+    content: '';
+    display: inline-block;
+    width: 20px; height: 1px;
+    background: var(--accent);
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(36px, 5vw, 58px);
+    font-weight: 800;
+    line-height: 1.0;
+    letter-spacing: -0.02em;
+  }
+  h1 span { color: var(--accent); }
+
+  .header-sub {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 300;
+    max-width: 560px;
+    line-height: 1.6;
+  }
+
+  /* Pipeline track */
+  .pipeline-track {
+    display: flex;
+    align-items: center;
+    margin-bottom: 40px;
+    overflow-x: auto;
+    padding: 4px 0 8px;
+    scrollbar-width: none;
+  }
+  .pipeline-track::-webkit-scrollbar { display: none; }
+
+  .pipeline-step { display: flex; align-items: center; flex-shrink: 0; }
+
+  .step-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    transition: all 0.3s;
+  }
+  .step-badge.active { border-color: currentColor; background: var(--surface2); }
+  .step-badge.done { opacity: 0.45; }
+
+  .step-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .step-dot.pulse { animation: pulse 1s infinite; }
+
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50% { opacity:0.4; transform:scale(1.5); }
+  }
+
+  .step-arrow {
+    width: 24px; height: 1px;
+    background: var(--border);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .step-arrow::after {
+    content: '▶';
+    position: absolute;
+    right: -6px; top: -5px;
+    font-size: 8px;
+    color: var(--border);
+  }
+
+  .step-1 { color: var(--agent-1); }
+  .step-2 { color: var(--agent-2); }
+  .step-3 { color: var(--agent-3); }
+  .step-4 { color: var(--agent-4); }
+  .step-5 { color: var(--agent-5); }
+  .step-6 { color: var(--agent-6); }
+
+  /* Google Docs status pill */
+  .gdocs-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--surface);
+    border: 1px solid #1f3d1f;
+    padding: 7px 14px;
+    margin-bottom: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: #47ff8c;
+    letter-spacing: 0.08em;
+  }
+  .gdocs-pill-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #47ff8c;
+  }
+
+  /* Input section */
+  .input-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 28px;
+    margin-bottom: 32px;
+  }
+  .input-row {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .input-row-secondary {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+  .field-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  input, select, textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+    -webkit-appearance: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+
+  .api-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: end;
+  }
+  .run-btn {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 11px 28px;
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .run-btn:hover:not(:disabled) { background: #fff; transform: translateY(-1px); }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Agent cards */
+  .agents-grid { display: flex; flex-direction: column; gap: 12px; }
+
+  .agent-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .agent-card.active-card {
+    border-color: var(--accent);
+    box-shadow: 0 0 20px rgba(232,255,71,0.05);
+  }
+
+  .agent-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s;
+  }
+  .agent-card.has-content .agent-header { border-bottom-color: var(--border); }
+
+  .agent-left { display: flex; align-items: center; gap: 14px; }
+  .agent-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border: 1px solid currentColor;
+    letter-spacing: 0.1em;
+  }
+  .agent-name { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; }
+  .agent-desc { font-size: 12px; color: var(--muted); margin-top: 1px; font-family: 'IBM Plex Mono', monospace; }
+
+  .agent-right { display: flex; align-items: center; gap: 12px; }
+  .agent-status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+  .status-dot.running { background: var(--accent); animation: pulse 1s infinite; }
+  .status-dot.done { background: #47ff8c; }
+  .status-dot.error { background: var(--accent3); }
+
+  .toggle-icon { color: var(--muted); font-size: 12px; transition: transform 0.2s; }
+  .agent-card.expanded .toggle-icon { transform: rotate(180deg); }
+
+  .agent-body { display: none; padding: 20px; }
+  .agent-card.expanded .agent-body { display: block; }
+
+  .agent-output {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #ccc;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 16px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .agent-output:empty::after { content: 'Waiting...'; color: var(--muted); }
+
+  .copy-btn {
+    margin-top: 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 6px 14px;
+    cursor: pointer;
+    letter-spacing: 0.1em;
+    transition: all 0.2s;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Schema card special styling */
+  #card-5 .agent-output {
+    color: var(--agent-6);
+    font-size: 11.5px;
+  }
+
+  /* Typing cursor */
+  @keyframes typing-cursor { 0%,100%{opacity:1} 50%{opacity:0} }
+  .typing::after {
+    content: '█';
+    animation: typing-cursor 0.7s infinite;
+    margin-left: 2px;
+    font-size: 10px;
+  }
+
+  /* Final section */
+  .final-section {
+    margin-top: 32px;
+    border: 1px solid var(--accent);
+    padding: 28px;
+    background: var(--surface);
+    display: none;
+  }
+  .final-section.visible { display: block; }
+
+  .final-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .final-label::after { content: ''; flex: 1; height: 1px; background: var(--accent); opacity: 0.3; }
+
+  .final-output {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 600px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .meta-bar {
+    display: flex;
+    gap: 20px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .meta-item { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
+  .meta-item span { color: var(--text); }
+
+  .final-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+  .final-btn {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 10px 20px;
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: background 0.2s;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .final-btn:hover { background: #fff; }
+
+  .final-btn.gdocs {
+    background: var(--agent-6);
+    color: var(--bg);
+  }
+  .final-btn.gdocs:hover { background: #fff; }
+  .final-btn.gdocs:disabled { opacity: 0.35; cursor: not-allowed; background: var(--agent-6); }
+
+  .final-btn.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .final-btn.secondary:hover { border-color: var(--text); color: var(--text); background: transparent; }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 32px;
+    right: 32px;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 12px 20px;
+    z-index: 200;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s;
+    pointer-events: none;
+    max-width: 320px;
+    line-height: 1.5;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-color: var(--accent3); }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+
+  @media (max-width: 640px) {
+    .input-row { grid-template-columns: 1fr; }
+    .input-row-secondary { grid-template-columns: 1fr 1fr; }
+    .api-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-tag">AI Content Pipeline · v2</div>
+    <h1>Blog<br><span>Agent</span> Stack</h1>
+    <p class="header-sub">6-agent pipeline: research → outline → write → SEO → edit → schema. Exports a publish-ready Google Doc.</p>
+  </div>
+
+  <!-- Pipeline track -->
+  <div class="pipeline-track">
+    <div class="pipeline-step">
+      <div class="step-badge step-1" id="track-0"><span class="step-dot" id="dot-0"></span><span>01 Research</span></div>
+    </div>
+    <div class="step-arrow"></div>
+    <div class="pipeline-step">
+      <div class="step-badge step-2" id="track-1"><span class="step-dot" id="dot-1"></span><span>02 Outline</span></div>
+    </div>
+    <div class="step-arrow"></div>
+    <div class="pipeline-step">
+      <div class="step-badge step-3" id="track-2"><span class="step-dot" id="dot-2"></span><span>03 Write</span></div>
+    </div>
+    <div class="step-arrow"></div>
+    <div class="pipeline-step">
+      <div class="step-badge step-4" id="track-3"><span class="step-dot" id="dot-3"></span><span>04 SEO</span></div>
+    </div>
+    <div class="step-arrow"></div>
+    <div class="pipeline-step">
+      <div class="step-badge step-5" id="track-4"><span class="step-dot" id="dot-4"></span><span>05 Edit</span></div>
+    </div>
+    <div class="step-arrow"></div>
+    <div class="pipeline-step">
+      <div class="step-badge step-6" id="track-5"><span class="step-dot" id="dot-5"></span><span>06 Schema</span></div>
+    </div>
+  </div>
+
+  <!-- Google Docs status pill -->
+  <div class="gdocs-pill">
+    <div class="gdocs-pill-dot"></div>
+    <span>Google Docs Export — Ready</span>
+  </div>
+
+  <!-- Input section -->
+  <div class="input-section">
+    <div class="input-row">
+      <div class="field-group">
+        <label class="field-label">Topic / Working Title</label>
+        <input type="text" id="topic" placeholder="e.g. Best lighthouses to visit in Maine" />
+      </div>
+      <div class="field-group">
+        <label class="field-label">Target Keyword</label>
+        <input type="text" id="keyword" placeholder="e.g. Maine lighthouses" />
+      </div>
+    </div>
+    <div class="input-row-secondary">
+      <div class="field-group">
+        <label class="field-label">Content Type</label>
+        <select id="contentType">
+          <option value="travel guide">Travel Guide</option>
+          <option value="listicle">Listicle</option>
+          <option value="how-to">How-To</option>
+          <option value="comparison">Comparison</option>
+          <option value="informational">Informational</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Target Length</label>
+        <select id="wordCount">
+          <option value="800-1000">800–1000 words</option>
+          <option value="1200-1500" selected>1200–1500 words</option>
+          <option value="1800-2200">1800–2200 words</option>
+          <option value="2500+">2500+ words</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Tone</label>
+        <select id="tone">
+          <option value="helpful and practical">Helpful & Practical</option>
+          <option value="conversational">Conversational</option>
+          <option value="authoritative">Authoritative</option>
+          <option value="exciting and adventurous">Exciting & Adventurous</option>
+        </select>
+      </div>
+    </div>
+    <div class="input-row-secondary">
+      <div class="field-group">
+        <label class="field-label">Site Name (for Schema)</label>
+        <input type="text" id="siteName" placeholder="e.g. Lighthouse New England" />
+      </div>
+      <div class="field-group">
+        <label class="field-label">Site URL (for Schema)</label>
+        <input type="text" id="siteUrl" placeholder="e.g. https://lighthousene.com" />
+      </div>
+      <div class="field-group">
+        <label class="field-label">Author Name (for Schema)</label>
+        <input type="text" id="authorName" placeholder="e.g. Nick Valiton" />
+      </div>
+    </div>
+    <div class="api-row">
+      <div class="field-group">
+        <label class="field-label">Anthropic API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-ant-..." />
+      </div>
+      <button class="run-btn" id="runBtn" onclick="runPipeline()">▶ Run Pipeline</button>
+    </div>
+  </div>
+
+  <!-- Agent cards -->
+  <div class="agents-grid" id="agentsGrid">
+
+    <div class="agent-card" id="card-0">
+      <div class="agent-header" onclick="toggleCard(0)">
+        <div class="agent-left">
+          <span class="agent-num step-1">01</span>
+          <div><div class="agent-name">Researcher</div><div class="agent-desc">SERP analysis · competitor angles · key stats · search intent</div></div>
+        </div>
+        <div class="agent-right">
+          <div class="agent-status" id="status-0"><div class="status-dot" id="statusdot-0"></div><span id="statustext-0">IDLE</span></div>
+          <span class="toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-body"><div class="agent-output" id="output-0"></div><button class="copy-btn" onclick="copyOutput(0)">COPY OUTPUT</button></div>
+    </div>
+
+    <div class="agent-card" id="card-1">
+      <div class="agent-header" onclick="toggleCard(1)">
+        <div class="agent-left">
+          <span class="agent-num step-2">02</span>
+          <div><div class="agent-name">Outliner</div><div class="agent-desc">H1/H2/H3 structure · section notes · content hooks</div></div>
+        </div>
+        <div class="agent-right">
+          <div class="agent-status" id="status-1"><div class="status-dot" id="statusdot-1"></div><span id="statustext-1">IDLE</span></div>
+          <span class="toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-body"><div class="agent-output" id="output-1"></div><button class="copy-btn" onclick="copyOutput(1)">COPY OUTPUT</button></div>
+    </div>
+
+    <div class="agent-card" id="card-2">
+      <div class="agent-header" onclick="toggleCard(2)">
+        <div class="agent-left">
+          <span class="agent-num step-3">03</span>
+          <div><div class="agent-name">Writer</div><div class="agent-desc">Full draft · intro hook · body sections · CTA</div></div>
+        </div>
+        <div class="agent-right">
+          <div class="agent-status" id="status-2"><div class="status-dot" id="statusdot-2"></div><span id="statustext-2">IDLE</span></div>
+          <span class="toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-body"><div class="agent-output" id="output-2"></div><button class="copy-btn" onclick="copyOutput(2)">COPY OUTPUT</button></div>
+    </div>
+
+    <div class="agent-card" id="card-3">
+      <div class="agent-header" onclick="toggleCard(3)">
+        <div class="agent-left">
+          <span class="agent-num step-4">04</span>
+          <div><div class="agent-name">SEO Optimizer</div><div class="agent-desc">Keyword placement · meta · title tags · internal link map</div></div>
+        </div>
+        <div class="agent-right">
+          <div class="agent-status" id="status-3"><div class="status-dot" id="statusdot-3"></div><span id="statustext-3">IDLE</span></div>
+          <span class="toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-body"><div class="agent-output" id="output-3"></div><button class="copy-btn" onclick="copyOutput(3)">COPY OUTPUT</button></div>
+    </div>
+
+    <div class="agent-card" id="card-4">
+      <div class="agent-header" onclick="toggleCard(4)">
+        <div class="agent-left">
+          <span class="agent-num step-5">05</span>
+          <div><div class="agent-name">Editor</div><div class="agent-desc">Tone polish · flow · readability · final article</div></div>
+        </div>
+        <div class="agent-right">
+          <div class="agent-status" id="status-4"><div class="status-dot" id="statusdot-4"></div><span id="statustext-4">IDLE</span></div>
+          <span class="toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-body"><div class="agent-output" id="output-4"></div><button class="copy-btn" onclick="copyOutput(4)">COPY OUTPUT</button></div>
+    </div>
+
+    <div class="agent-card" id="card-5">
+      <div class="agent-header" onclick="toggleCard(5)">
+        <div class="agent-left">
+          <span class="agent-num step-6">06</span>
+          <div><div class="agent-name">Schema Generator</div><div class="agent-desc">Reasons schema type · outputs valid JSON-LD · ready to paste</div></div>
+        </div>
+        <div class="agent-right">
+          <div class="agent-status" id="status-5"><div class="status-dot" id="statusdot-5"></div><span id="statustext-5">IDLE</span></div>
+          <span class="toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-body"><div class="agent-output" id="output-5"></div><button class="copy-btn" onclick="copyOutput(5)">COPY SCHEMA</button></div>
+    </div>
+
+  </div>
+
+  <!-- Final section -->
+  <div class="final-section" id="finalSection">
+    <div class="final-label">Publish Package</div>
+    <div class="final-output" id="finalOutput"></div>
+    <div class="meta-bar">
+      <div class="meta-item">Words: <span id="wordCountFinal">—</span></div>
+      <div class="meta-item">Chars: <span id="charCount">—</span></div>
+      <div class="meta-item">Est. read time: <span id="readTime">—</span></div>
+      <div class="meta-item">Schema types: <span id="schemaTypes">—</span></div>
+    </div>
+    <div class="final-actions">
+      <button class="final-btn gdocs" id="gdocsExportBtn" onclick="exportToGoogleDocs()" disabled>📄 EXPORT TO GOOGLE DOCS</button>
+      <button class="final-btn" onclick="copyFinal()">COPY ARTICLE</button>
+      <button class="final-btn secondary" onclick="copySchema()">COPY SCHEMA</button>
+      <button class="final-btn secondary" onclick="downloadFinal()">DOWNLOAD .TXT</button>
+      <button class="final-btn secondary" onclick="resetAll()">RESET</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Google OAuth state ────────────────────────────────────────────────────
+const gClientId = '299623812139-8lq9l3ae2efojk30i4b1cb9i1if9cukf.apps.googleusercontent.com';
+let gAccessToken = null;
+let gTokenExpiry = 0;
+
+// ─── OAuth sign-in ─────────────────────────────────────────────────────────
+function getGoogleToken() {
+  return new Promise((resolve, reject) => {
+    if (gAccessToken && Date.now() < gTokenExpiry) {
+      resolve(gAccessToken);
+      return;
+    }
+    if (!gClientId) {
+      reject(new Error('No Google Client ID configured.'));
+      return;
+    }
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: gClientId,
+      scope: 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file',
+      callback: (resp) => {
+        if (resp.error) { reject(new Error(resp.error)); return; }
+        gAccessToken = resp.access_token;
+        gTokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
+        resolve(gAccessToken);
+      }
+    });
+    client.requestAccessToken();
+  });
+}
+
+// ─── Google Docs export ────────────────────────────────────────────────────
+async function exportToGoogleDocs() {
+
+  const btn = document.getElementById('gdocsExportBtn');
+  btn.disabled = true;
+  btn.textContent = '⟳ CREATING DOC...';
+
+  try {
+    const token = await getGoogleToken();
+    const topic = document.getElementById('topic').value.trim() || 'Blog Article';
+    const keyword = document.getElementById('keyword').value.trim();
+    const siteName = document.getElementById('siteName').value.trim();
+
+    // Extract meta from editor output (Agent 5)
+    const editorOutput = outputs[4] || '';
+    const metaMatch = editorOutput.match(/META DESCRIPTION:\s*(.+)/i);
+    const titleMatch = editorOutput.match(/RECOMMENDED TITLE:\s*(.+)/i);
+    const slugMatch = editorOutput.match(/URL SLUG:\s*(.+)/i);
+    const schemaTypeMatch = editorOutput.match(/SCHEMA TYPE:\s*(.+)/i);
+    const internalLinksMatch = editorOutput.match(/INTERNAL LINKING HOOKS:\s*([\s\S]+?)(?:EDITOR NOTES:|$)/i);
+    const editorNotesMatch = editorOutput.match(/EDITOR NOTES:\s*([\s\S]+?)$/i);
+
+    const metaDesc = metaMatch ? metaMatch[1].trim() : '';
+    const recommendedTitle = titleMatch ? titleMatch[1].trim() : topic;
+    const urlSlug = slugMatch ? slugMatch[1].trim() : '';
+    const schemaType = schemaTypeMatch ? schemaTypeMatch[1].trim() : '';
+    const internalLinks = internalLinksMatch ? internalLinksMatch[1].trim() : '';
+    const editorNotes = editorNotesMatch ? editorNotesMatch[1].trim() : '';
+
+    // Extract just the article body (before FINAL PACKAGE)
+    const articleBody = editorOutput.split(/---\s*\n?FINAL PACKAGE/i)[0].trim();
+
+    const schemaJson = outputs[5] || '';
+
+    // Build document content as requests array
+    const now = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+    const requests = [];
+    let cursor = 1; // Google Docs insertText index starts at 1
+
+    function ins(text, idx) {
+      requests.push({ insertText: { location: { index: idx }, text } });
+      return idx + text.length;
+    }
+
+    // We'll build the full doc text first, then apply formatting
+    // Google Docs API: create doc, then batchUpdate with insertText + formatting
+
+    // Step 1: Create the document
+    const createRes = await fetch('https://docs.googleapis.com/v1/documents', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ title: `[DRAFT] ${recommendedTitle}` })
+    });
+
+    if (!createRes.ok) {
+      const e = await createRes.json();
+      throw new Error(e.error?.message || 'Failed to create Google Doc');
+    }
+
+    const doc = await createRes.json();
+    const docId = doc.documentId;
+    const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
+
+    // Step 2: Build full text content
+    const separator = '\n' + '─'.repeat(60) + '\n';
+
+    const sections = [];
+
+    // Section 1: Publish Metadata
+    sections.push(`PUBLISH METADATA\n`);
+    sections.push(`Title: ${recommendedTitle}\n`);
+    sections.push(`Target Keyword: ${keyword}\n`);
+    sections.push(`Meta Description: ${metaDesc}\n`);
+    sections.push(`URL Slug: ${urlSlug}\n`);
+    sections.push(`Schema Type(s): ${schemaType}\n`);
+    if (siteName) sections.push(`Site: ${siteName}\n`);
+    sections.push(`Generated: ${now}\n`);
+    sections.push(separator);
+
+    // Section 2: Internal Linking Strategy
+    sections.push(`INTERNAL LINKING STRATEGY\n`);
+    sections.push(`${internalLinks || 'See SEO Optimizer output for details.'}\n`);
+    sections.push(separator);
+
+    // Section 3: Editor Notes / Review Checklist
+    sections.push(`EDITOR NOTES — REVIEW BEFORE PUBLISHING\n`);
+    sections.push(`${editorNotes || 'No specific notes.'}\n`);
+    sections.push(separator);
+
+    // Section 4: Article Body
+    sections.push(`ARTICLE\n`);
+    sections.push(`${articleBody}\n`);
+    sections.push(separator);
+
+    // Section 5: Schema Markup
+    sections.push(`SCHEMA MARKUP (JSON-LD)\n`);
+    sections.push(`Paste this inside a <script type="application/ld+json"> tag in your page <head>.\n\n`);
+    sections.push(`${schemaJson}\n`);
+
+    const fullText = sections.join('');
+
+    // Step 3: Insert all text in one request
+    const insertRequests = [
+      { insertText: { location: { index: 1 }, text: fullText } }
+    ];
+
+    // Step 4: Apply formatting
+    // We'll find character positions and apply heading styles
+    const formattingRequests = [];
+
+    // Helper to find index of a string in fullText
+    function findIndex(needle, startFrom = 0) {
+      const idx = fullText.indexOf(needle, startFrom);
+      return idx === -1 ? null : idx + 1; // +1 because Docs is 1-indexed, and we inserted at index 1
+    }
+
+    // Apply HEADING 1 to section headers
+    const h1Sections = [
+      'PUBLISH METADATA',
+      'INTERNAL LINKING STRATEGY',
+      'EDITOR NOTES — REVIEW BEFORE PUBLISHING',
+      'ARTICLE',
+      'SCHEMA MARKUP (JSON-LD)'
+    ];
+
+    h1Sections.forEach(label => {
+      const start = findIndex(label);
+      if (start !== null) {
+        formattingRequests.push({
+          updateParagraphStyle: {
+            range: { startIndex: start, endIndex: start + label.length },
+            paragraphStyle: { namedStyleType: 'HEADING_1' },
+            fields: 'namedStyleType'
+          }
+        });
+      }
+    });
+
+    // Bold metadata key labels
+    const boldLabels = ['Title: ', 'Target Keyword: ', 'Meta Description: ', 'URL Slug: ', 'Schema Type(s): ', 'Site: ', 'Generated: '];
+    boldLabels.forEach(label => {
+      const start = findIndex(label);
+      if (start !== null) {
+        formattingRequests.push({
+          updateTextStyle: {
+            range: { startIndex: start, endIndex: start + label.length },
+            textStyle: { bold: true },
+            fields: 'bold'
+          }
+        });
+      }
+    });
+
+    // Make schema block monospace
+    const schemaStart = findIndex(schemaJson.substring(0, 30));
+    if (schemaStart !== null && schemaJson.length > 0) {
+      formattingRequests.push({
+        updateTextStyle: {
+          range: { startIndex: schemaStart, endIndex: schemaStart + schemaJson.length },
+          textStyle: {
+            weightedFontFamily: { fontFamily: 'Courier New', weight: 400 },
+            fontSize: { magnitude: 10, unit: 'PT' }
+          },
+          fields: 'weightedFontFamily,fontSize'
+        }
+      });
+    }
+
+    // Apply heading styles to article H1/H2/H3 markers
+    // Look for lines starting with # ## ###
+    const articleLines = articleBody.split('\n');
+    let articleCursor = fullText.indexOf('ARTICLE\n') + 'ARTICLE\n'.length;
+    articleLines.forEach(line => {
+      const lineStart = fullText.indexOf(line, articleCursor - 10);
+      if (lineStart !== -1) {
+        const docIdx = lineStart + 1;
+        if (line.startsWith('### ')) {
+          formattingRequests.push({
+            updateParagraphStyle: {
+              range: { startIndex: docIdx, endIndex: docIdx + line.length },
+              paragraphStyle: { namedStyleType: 'HEADING_3' },
+              fields: 'namedStyleType'
+            }
+          });
+        } else if (line.startsWith('## ')) {
+          formattingRequests.push({
+            updateParagraphStyle: {
+              range: { startIndex: docIdx, endIndex: docIdx + line.length },
+              paragraphStyle: { namedStyleType: 'HEADING_2' },
+              fields: 'namedStyleType'
+            }
+          });
+        } else if (line.startsWith('# ')) {
+          formattingRequests.push({
+            updateParagraphStyle: {
+              range: { startIndex: docIdx, endIndex: docIdx + line.length },
+              paragraphStyle: { namedStyleType: 'HEADING_1' },
+              fields: 'namedStyleType'
+            }
+          });
+        }
+      }
+      articleCursor += line.length + 1;
+    });
+
+    // Step 5: Batch update — insert text first, then format
+    await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ requests: insertRequests })
+    });
+
+    // Step 6: Apply formatting in second batch
+    if (formattingRequests.length > 0) {
+      await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ requests: formattingRequests })
+      });
+    }
+
+    // Open the doc
+    window.open(docUrl, '_blank');
+    showToast(`Doc created: "${recommendedTitle}" — opened in new tab ✓`);
+
+  } catch (err) {
+    console.error(err);
+    showToast(`Google Docs error: ${err.message}`, true);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '📄 EXPORT TO GOOGLE DOCS';
+}
+
+// ─── Agent prompts ─────────────────────────────────────────────────────────
+const AGENTS = [
+  {
+    name: 'Researcher',
+    buildPrompt: (topic, keyword, contentType, wordCount, tone) => `You are an expert SEO content researcher. A content writer needs to write a ${contentType} blog article about: "${topic}" targeting the keyword: "${keyword}".
+
+Your job is to provide a thorough research brief that includes:
+
+1. SEARCH INTENT ANALYSIS
+- Primary intent (informational/navigational/commercial/transactional)
+- What the searcher actually wants to learn/do
+- Key questions this article must answer
+
+2. SERP LANDSCAPE (simulate based on your knowledge)
+- Types of results likely ranking (lists, guides, local results, etc.)
+- Content format that dominates this SERP
+- Estimated competition level and what top-ranking articles likely cover
+
+3. KEY ANGLES & SUBTOPICS
+- 6-8 specific subtopics or angles this article should cover
+- Any unique angles competitors might miss
+- Seasonal or trending considerations
+
+4. MUST-INCLUDE FACTS & DATA POINTS
+- 5-8 specific facts, statistics, or data points to include (use real data if you know it, or note what type of data to research)
+
+5. AUDIENCE PROFILE
+- Who is searching this keyword
+- What they already know vs what they need to learn
+- Tone/complexity they expect
+
+6. CONTENT DIFFERENTIATION OPPORTUNITIES
+- What would make this article rank above competitors
+- Unique value-adds (tools, checklists, maps, photos, etc.)
+
+Keep this tight and actionable. No fluff.`
+  },
+  {
+    name: 'Outliner',
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev) => `You are an expert content strategist. Based on this research brief, create a detailed article outline.
+
+RESEARCH BRIEF:
+${prev}
+
+ARTICLE SPECS:
+- Topic: "${topic}"
+- Target keyword: "${keyword}"
+- Content type: ${contentType}
+- Target word count: ${wordCount} words
+- Tone: ${tone}
+
+Create a complete outline with:
+
+H1: [SEO-optimized title with keyword]
+
+INTRO HOOK: [2-3 sentence description of what the intro should accomplish and how to hook the reader]
+
+For each section (H2):
+- H2: [Section heading]
+  - Key points to cover (3-5 bullets)
+  - Recommended word count for this section
+  - Any specific data, examples, or media to include
+  - H3 subsections if applicable
+
+CONCLUSION: [What to summarize and what CTA to include]
+
+SIDEBAR ELEMENTS: [Any boxes, callouts, tables, or structured elements to include]
+
+SEO NOTES:
+- Primary keyword placement
+- 3-4 secondary/LSI keywords to naturally incorporate
+- Suggested internal linking hooks (describe the types of pages to link to)`
+  },
+  {
+    name: 'Writer',
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev) => `You are an expert content writer. Write a complete ${contentType} blog article following this outline precisely.
+
+OUTLINE:
+${prev}
+
+WRITING SPECS:
+- Topic: "${topic}"
+- Target keyword: "${keyword}"
+- Target word count: ${wordCount} words
+- Tone: ${tone}
+- Do NOT use filler phrases like "In today's world" or "In conclusion, it's clear that"
+- Use short paragraphs (2-4 sentences max)
+- Include the target keyword naturally 3-5 times
+- Write engaging, specific, useful content — not generic descriptions
+
+FORMAT:
+- Use markdown heading hierarchy (# H1, ## H2, ### H3)
+- Add a compelling meta description suggestion at the end (135-155 characters)
+- Mark any suggested image placement with [IMAGE: description]
+
+Write the full article now. Hit the word count target.`
+  },
+  {
+    name: 'SEO Optimizer',
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev) => `You are an expert SEO specialist. Review and optimize this article for search performance.
+
+ARTICLE TO OPTIMIZE:
+${prev}
+
+TARGET KEYWORD: "${keyword}"
+TOPIC: "${topic}"
+
+Provide a complete SEO optimization pass:
+
+1. TITLE TAG OPTIONS (3 variations, under 60 chars each)
+2. META DESCRIPTION (2 variations, 135-155 chars, include keyword + CTA)
+3. KEYWORD OPTIMIZATION — density assessment, placement recs, 5 LSI keywords
+4. HEADING OPTIMIZATION — rewrites for H2/H3s, ensure PAA alignment
+5. INTERNAL LINKING STRATEGY — 4-6 anchor text suggestions with page type
+6. TECHNICAL SEO NOTES — URL slug, schema recommendation, image alt texts
+7. CONTENT GAPS — topics to add for topical authority
+8. OPTIMIZED INTRO — rewrite first paragraph to front-load keyword
+
+Be specific with section references.`
+  },
+  {
+    name: 'Editor',
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, articleDraft, seoNotes) => `You are a senior content editor. Produce the FINAL polished article.
+
+ORIGINAL DRAFT:
+${articleDraft}
+
+SEO OPTIMIZATION NOTES:
+${seoNotes}
+
+YOUR TASK:
+1. Incorporate SEO improvements (keyword placement, heading rewrites, optimized intro)
+2. Polish prose for flow, readability, and ${tone} tone
+3. Remove redundancy and filler
+4. Ensure consistent voice throughout
+5. Add transition sentences between sections where needed
+6. Ensure the CTA at the end is compelling
+7. Keep markdown heading format (# ## ###)
+
+Then provide a FINAL PACKAGE below the article:
+
+---
+FINAL PACKAGE
+---
+RECOMMENDED TITLE: [best title option]
+META DESCRIPTION: [best meta, 135-155 chars]
+URL SLUG: [recommended slug]
+SCHEMA TYPE: [recommendation]
+WORD COUNT: [approximate]
+INTERNAL LINKING HOOKS: [list of anchor texts with page type, one per line]
+EDITOR NOTES: [2-3 things the human should review or verify]
+
+Output the complete final article first, then the package.`
+  },
+  {
+    name: 'Schema Generator',
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, finalArticle, seoNotes, siteName, siteUrl, authorName) => `You are a structured data and Schema.org expert. Generate complete, valid JSON-LD schema markup for this article.
+
+ARTICLE CONTENT:
+${finalArticle.substring(0, 3000)}
+
+METADATA:
+- Topic: "${topic}"
+- Target keyword: "${keyword}"
+- Content type: ${contentType}
+- Site name: ${siteName || 'N/A'}
+- Site URL: ${siteUrl || 'https://example.com'}
+- Author: ${authorName || 'Site Author'}
+
+STEP 1 — SCHEMA TYPE REASONING:
+First, reason about which schema types are most appropriate for this content. Consider:
+- Article (always applicable to blog posts)
+- TravelGuide + TouristDestination (for destination/travel content)
+- HowTo (if the article contains step-by-step instructions)
+- FAQPage (if the article contains or implies FAQ-style questions)
+- BreadcrumbList (always useful for SEO)
+- ItemList (for listicles)
+
+Explain briefly (2-3 sentences) which types you're including and why.
+
+STEP 2 — JSON-LD OUTPUT:
+Output a single <script type="application/ld+json"> block containing a @graph array with all relevant schema types. Use real data from the article where possible. For fields you cannot determine (like exact datePublished), use [PLACEHOLDER: description] so the user knows what to fill in.
+
+Requirements:
+- Valid JSON — no trailing commas, proper escaping
+- Use @graph to combine multiple types in one block
+- Include all recommended properties for each type per Google's guidelines
+- For FAQPage: extract 3-5 actual questions and answers from the article
+- For HowTo: extract actual steps if present
+- For TouristDestination/TravelGuide: use real location data if identifiable from content
+
+Output ONLY the reasoning paragraph followed by the complete script tag. No other commentary.`
+  }
+];
+
+// ─── State ─────────────────────────────────────────────────────────────────
+let outputs = ['', '', '', '', '', ''];
+let isRunning = false;
+
+// ─── UI helpers ────────────────────────────────────────────────────────────
+function toggleCard(idx) {
+  document.getElementById(`card-${idx}`).classList.toggle('expanded');
+}
+
+function setStatus(idx, state, text) {
+  document.getElementById(`statusdot-${idx}`).className = 'status-dot ' + state;
+  document.getElementById(`statustext-${idx}`).textContent = text;
+  document.getElementById(`dot-${idx}`).className = 'step-dot ' + (state === 'running' ? 'pulse' : '');
+
+  const card = document.getElementById(`card-${idx}`);
+  const track = document.getElementById(`track-${idx}`);
+
+  if (state === 'running') {
+    card.classList.add('active-card', 'expanded', 'has-content');
+    track.classList.add('active');
+    track.classList.remove('done');
+  } else if (state === 'done') {
+    card.classList.remove('active-card');
+    track.classList.add('done');
+    track.classList.remove('active');
+  }
+}
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+// ─── Claude API call with streaming ────────────────────────────────────────
+async function callClaude(apiKey, prompt, outputEl) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      stream: true,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error?.message || 'API error');
+  }
+
+  let fullText = '';
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  outputEl.classList.add('typing');
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    for (const line of chunk.split('\n')) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+            fullText += parsed.delta.text;
+            outputEl.textContent = fullText;
+            outputEl.scrollTop = outputEl.scrollHeight;
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  outputEl.classList.remove('typing');
+  return fullText;
+}
+
+// ─── Pipeline runner ────────────────────────────────────────────────────────
+async function runPipeline() {
+  if (isRunning) return;
+
+  const topic = document.getElementById('topic').value.trim();
+  const keyword = document.getElementById('keyword').value.trim();
+  const contentType = document.getElementById('contentType').value;
+  const wordCount = document.getElementById('wordCount').value;
+  const tone = document.getElementById('tone').value;
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const siteName = document.getElementById('siteName').value.trim();
+  const siteUrl = document.getElementById('siteUrl').value.trim();
+  const authorName = document.getElementById('authorName').value.trim();
+
+  if (!topic || !keyword) { alert('Please enter a topic and target keyword.'); return; }
+  if (!apiKey || !apiKey.startsWith('sk-ant-')) { alert('Please enter a valid Anthropic API key (starts with sk-ant-)'); return; }
+
+  isRunning = true;
+  outputs = ['', '', '', '', '', ''];
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('runBtn').textContent = '⟳ Running...';
+  document.getElementById('finalSection').classList.remove('visible');
+  document.getElementById('gdocsExportBtn').disabled = true;
+
+  try {
+    // Agent 1: Research
+    setStatus(0, 'running', 'RUNNING');
+    outputs[0] = await callClaude(apiKey, AGENTS[0].buildPrompt(topic, keyword, contentType, wordCount, tone), document.getElementById('output-0'));
+    setStatus(0, 'done', 'DONE');
+
+    // Agent 2: Outline
+    setStatus(1, 'running', 'RUNNING');
+    outputs[1] = await callClaude(apiKey, AGENTS[1].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[0]), document.getElementById('output-1'));
+    setStatus(1, 'done', 'DONE');
+
+    // Agent 3: Write
+    setStatus(2, 'running', 'RUNNING');
+    outputs[2] = await callClaude(apiKey, AGENTS[2].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[1]), document.getElementById('output-2'));
+    setStatus(2, 'done', 'DONE');
+
+    // Agent 4: SEO
+    setStatus(3, 'running', 'RUNNING');
+    outputs[3] = await callClaude(apiKey, AGENTS[3].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[2]), document.getElementById('output-3'));
+    setStatus(3, 'done', 'DONE');
+
+    // Agent 5: Edit
+    setStatus(4, 'running', 'RUNNING');
+    outputs[4] = await callClaude(apiKey, AGENTS[4].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[2], outputs[3]), document.getElementById('output-4'));
+    setStatus(4, 'done', 'DONE');
+
+    // Agent 6: Schema
+    setStatus(5, 'running', 'RUNNING');
+    outputs[5] = await callClaude(apiKey, AGENTS[5].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[4], outputs[3], siteName, siteUrl, authorName), document.getElementById('output-5'));
+    setStatus(5, 'done', 'DONE');
+
+    showFinal();
+
+  } catch (err) {
+    const runningIdx = [0,1,2,3,4,5].find(i => document.getElementById(`statusdot-${i}`).classList.contains('running'));
+    if (runningIdx !== undefined) {
+      setStatus(runningIdx, 'error', 'ERROR');
+      document.getElementById(`output-${runningIdx}`).textContent = `Error: ${err.message}`;
+    }
+    showToast(`Pipeline error: ${err.message}`, true);
+    console.error(err);
+  }
+
+  isRunning = false;
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('runBtn').textContent = '▶ Run Pipeline';
+}
+
+function showFinal() {
+  const text = outputs[4]; // Show article in final panel
+  const finalSection = document.getElementById('finalSection');
+  document.getElementById('finalOutput').textContent = text;
+  finalSection.classList.add('visible');
+  finalSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const words = text.trim().split(/\s+/).length;
+  document.getElementById('wordCountFinal').textContent = words.toLocaleString();
+  document.getElementById('charCount').textContent = text.length.toLocaleString();
+  document.getElementById('readTime').textContent = `~${Math.ceil(words / 220)} min`;
+
+  // Extract schema types from agent 6 output
+  const schemaOutput = outputs[5] || '';
+  const typeMatches = schemaOutput.match(/"@type":\s*"([^"]+)"/g) || [];
+  const types = [...new Set(typeMatches.map(m => m.match(/"([^"]+)"$/)[1]))].join(', ');
+  document.getElementById('schemaTypes').textContent = types || '—';
+
+  // Enable Google Docs export button
+  document.getElementById('gdocsExportBtn').disabled = false;
+}
+
+// ─── Copy / download helpers ───────────────────────────────────────────────
+function copyOutput(idx) {
+  navigator.clipboard.writeText(outputs[idx]).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = 'COPIED ✓';
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
+}
+
+function copyFinal() {
+  navigator.clipboard.writeText(outputs[4]).then(() => {
+    showToast('Article copied to clipboard ✓');
+  });
+}
+
+function copySchema() {
+  navigator.clipboard.writeText(outputs[5]).then(() => {
+    showToast('Schema JSON-LD copied to clipboard ✓');
+  });
+}
+
+function downloadFinal() {
+  const topic = document.getElementById('topic').value.trim() || 'article';
+  const slug = topic.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const now = new Date().toISOString().split('T')[0];
+
+  const metaBlock = outputs[4].split(/---\s*\n?FINAL PACKAGE/i)[1] || '';
+  const fullExport = [
+    `=== PUBLISH PACKAGE — ${topic} ===`,
+    `Generated: ${now}`,
+    '',
+    '=== ARTICLE ===',
+    outputs[4].split(/---\s*\n?FINAL PACKAGE/i)[0].trim(),
+    '',
+    '=== FINAL PACKAGE ===',
+    metaBlock.trim(),
+    '',
+    '=== SCHEMA JSON-LD ===',
+    outputs[5]
+  ].join('\n');
+
+  const blob = new Blob([fullExport], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${slug}-${now}.txt`;
+  a.click();
+  showToast('Downloaded as .txt ✓');
+}
+
+function resetAll() {
+  outputs = ['', '', '', '', '', ''];
+  [0,1,2,3,4,5].forEach(i => {
+    document.getElementById(`statusdot-${i}`).className = 'status-dot';
+    document.getElementById(`statustext-${i}`).textContent = 'IDLE';
+    document.getElementById(`output-${i}`).textContent = '';
+    document.getElementById(`dot-${i}`).className = 'step-dot';
+    const card = document.getElementById(`card-${i}`);
+    card.classList.remove('expanded', 'active-card', 'has-content');
+    const track = document.getElementById(`track-${i}`);
+    track.classList.remove('active', 'done');
+  });
+  document.getElementById('finalSection').classList.remove('visible');
+  document.getElementById('gdocsExportBtn').disabled = true;
+}
+</script>
+
+<!-- Google Identity Services — required for OAuth token flow -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</body>
+</html>
