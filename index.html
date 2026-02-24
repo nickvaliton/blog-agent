@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Blog Agent Pipeline v9</title>
+<title>AI Blog Agent Pipeline v10</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
 
@@ -495,7 +495,7 @@
 
   <!-- Header -->
   <div class="header">
-    <div class="header-tag">AI Content Pipeline · v9</div>
+    <div class="header-tag">AI Content Pipeline · v10</div>
     <h1>Blog<br><span>Agent</span> Stack</h1>
     <p class="header-sub">6-agent pipeline: research → outline → write → SEO → edit → schema. Exports a publish-ready Google Doc.</p>
   </div>
@@ -810,25 +810,37 @@ async function exportToGoogleDocs() {
     const keyword = document.getElementById('keyword').value.trim();
     const siteName = document.getElementById('siteName').value.trim();
 
+    // outputs[4] is the final article (Editor or Revision Writer output)
+    // Extract article body — everything before any trailing metadata block
+    const rawArticle = outputs[4] || '';
+
+    // Strip trailing metadata blocks the Editor may append (FINAL PACKAGE, RECOMMENDED TITLE, etc.)
+    const articleBody = rawArticle
+      .replace(/---+\s*\n?FINAL PACKAGE[\s\S]*$/i, '')
+      .replace(/\n?RECOMMENDED TITLE:[\s\S]*$/i, '')
+      .replace(/\n?---VERDICT---[\s\S]*$/i, '')
+      .trim();
+
+    // Extract metadata from SEO output (outputs[3]) and editor output
+    const seoOutput = outputs[3] || '';
     const editorOutput = outputs[4] || '';
-    const metaMatch = editorOutput.match(/META DESCRIPTION:\s*(.+)/i);
-    const titleMatch = editorOutput.match(/RECOMMENDED TITLE:\s*(.+)/i);
-    const slugMatch = editorOutput.match(/URL SLUG:\s*(.+)/i);
-    const schemaTypeMatch = editorOutput.match(/SCHEMA TYPE:\s*(.+)/i);
-    const internalLinksMatch = editorOutput.match(/INTERNAL LINKING HOOKS:\s*([\s\S]+?)(?:EDITOR NOTES:|$)/i);
-    const editorNotesMatch = editorOutput.match(/EDITOR NOTES:\s*([\s\S]+?)$/i);
+
+    const metaMatch = editorOutput.match(/META DESCRIPTION:\s*(.+)/i) || seoOutput.match(/META DESCRIPTION[^:]*:\s*(.+)/i);
+    const titleMatch = editorOutput.match(/RECOMMENDED TITLE:\s*(.+)/i) || seoOutput.match(/TITLE TAG[^:]*:\s*(.+)/i);
+    const slugMatch = seoOutput.match(/URL SLUG:\s*(.+)/i);
+    const internalLinksMatch = seoOutput.match(/INTERNAL LINKING[^:]*:\s*([\s\S]+?)(?:\n\d\.|\n[A-Z]{2,}:|$)/i);
+    const editorNotesMatch = editorOutput.match(/EDITOR NOTES[^:]*:\s*([\s\S]+?)(?:---|\n\n[A-Z]{4,}|$)/i);
 
     const metaDesc = metaMatch ? metaMatch[1].trim() : '';
-    const recommendedTitle = titleMatch ? titleMatch[1].trim() : topic;
+    const recommendedTitle = (titleMatch ? titleMatch[1].trim() : '') || topic;
     const urlSlug = slugMatch ? slugMatch[1].trim() : '';
-    const schemaType = schemaTypeMatch ? schemaTypeMatch[1].trim() : '';
     const internalLinks = internalLinksMatch ? internalLinksMatch[1].trim() : '';
     const editorNotes = editorNotesMatch ? editorNotesMatch[1].trim() : '';
-    const articleBody = editorOutput.split(/---\s*\n?FINAL PACKAGE/i)[0].trim();
     const schemaJson = outputs[5] || '';
+    const qaReport = outputs[6] || '';
     const now = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
 
-    // ── Step 1: Create blank doc ───────────────────────────────────────────
+    // ── Step 1: Create blank doc ──────────────────────────────────────────
     const createRes = await fetch('https://docs.googleapis.com/v1/documents', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -839,357 +851,268 @@ async function exportToGoogleDocs() {
     const docId = doc.documentId;
     const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
 
-    // ── Step 2: Parse markdown article into segments ──────────────────────
-    // Each segment: { text, style, bold, italic, monospace, isBullet, isTable, tableData }
-    function parseMarkdown(md) {
-      const lines = md.split('\n');
-      const segments = [];
+    // ── Step 2: Build segment list ────────────────────────────────────────
+    // Each segment: { text, style?, isBullet?, isNumbered?, italic?, monospace?, bold?, boldPrefix? }
+    // Style values: HEADING_1, HEADING_2, HEADING_3, NORMAL_TEXT
 
+    function parseMarkdown(md) {
+      const segs = [];
+      const lines = md.split('\n');
       let i = 0;
       while (i < lines.length) {
         const line = lines[i];
-
-        // Table detection: line contains | and next line is separator (---|---)
-        if (line.includes('|') && i + 1 < lines.length && lines[i+1].match(/^[\s|:-]+$/)) {
-          // Parse table
-          const tableLines = [];
-          while (i < lines.length && lines[i].includes('|')) {
-            if (!lines[i].match(/^[\s|:-]+$/)) { // skip separator rows
-              const cells = lines[i].split('|').map(c => c.trim()).filter(c => c !== '');
-              tableLines.push(cells);
-            }
-            i++;
-          }
-          segments.push({ isTable: true, tableData: tableLines });
-          continue;
+        // Skip markdown table separator lines
+        if (line.match(/^\s*\|?[\s:-]+\|/)) { i++; continue; }
+        // Table row — convert to plain text row
+        if (line.includes('|') && i + 1 < lines.length && lines[i+1].match(/^\s*\|?[\s:-]+\|/)) {
+          const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+          segs.push({ text: cells.join('  |  ') + '\n', style: 'NORMAL_TEXT', bold: true });
+          i++; // skip separator next iteration
+          i++; continue;
         }
-
-        // Headings
         if (line.startsWith('### ')) {
-          segments.push({ text: line.slice(4).trim() + '\n', style: 'HEADING_3' });
+          segs.push({ text: line.slice(4).trim() + '\n', style: 'HEADING_3' });
         } else if (line.startsWith('## ')) {
-          segments.push({ text: line.slice(3).trim() + '\n', style: 'HEADING_2' });
+          segs.push({ text: line.slice(3).trim() + '\n', style: 'HEADING_2' });
         } else if (line.startsWith('# ')) {
-          segments.push({ text: line.slice(2).trim() + '\n', style: 'HEADING_1' });
-        }
-        // Horizontal rule — skip
-        else if (line.match(/^---+$/) || line.match(/^═+$/) || line.match(/^─+$/)) {
-          segments.push({ text: '\n', style: 'NORMAL_TEXT' });
-        }
-        // Image placeholder
-        else if (line.match(/^\[IMAGE:/i)) {
-          const desc = line.replace(/^\[IMAGE:\s*/i, '').replace(/\]$/, '').trim();
-          segments.push({ text: `📷 Image: ${desc}\n`, style: 'NORMAL_TEXT', italic: true });
-        }
-        // Bullet list
-        else if (line.match(/^[-*]\s+/)) {
-          const text = line.replace(/^[-*]\s+/, '').trim();
-          segments.push({ text: stripInlineMarkdown(text) + '\n', style: 'NORMAL_TEXT', isBullet: true, inlineRanges: getInlineRanges(text) });
-        }
-        // Numbered list
-        else if (line.match(/^\d+\.\s+/)) {
-          const text = line.replace(/^\d+\.\s+/, '').trim();
-          segments.push({ text: stripInlineMarkdown(text) + '\n', style: 'NORMAL_TEXT', isNumbered: true, inlineRanges: getInlineRanges(text) });
-        }
-        // Empty line
-        else if (line.trim() === '') {
-          segments.push({ text: '\n', style: 'NORMAL_TEXT' });
-        }
-        // Normal paragraph
-        else {
-          const clean = stripInlineMarkdown(line);
-          segments.push({ text: clean + '\n', style: 'NORMAL_TEXT', inlineRanges: getInlineRanges(line) });
+          segs.push({ text: line.slice(2).trim() + '\n', style: 'HEADING_1' });
+        } else if (line.match(/^---+$|^═+$|^─+$/)) {
+          segs.push({ text: '\n', style: 'NORMAL_TEXT' });
+        } else if (line.match(/^\[IMAGE:/i)) {
+          const desc = line.replace(/^\[IMAGE:\s*/i,'').replace(/\]$/,'').trim();
+          segs.push({ text: `[Image: ${desc}]\n`, style: 'NORMAL_TEXT', italic: true });
+        } else if (line.match(/^[-*]\s+/)) {
+          segs.push({ text: stripMd(line.replace(/^[-*]\s+/,'').trim()) + '\n', style: 'NORMAL_TEXT', isBullet: true, inlineRanges: inlineRanges(line.replace(/^[-*]\s+/,'').trim()) });
+        } else if (line.match(/^\d+\.\s+/)) {
+          segs.push({ text: stripMd(line.replace(/^\d+\.\s+/,'').trim()) + '\n', style: 'NORMAL_TEXT', isNumbered: true, inlineRanges: inlineRanges(line.replace(/^\d+\.\s+/,'').trim()) });
+        } else if (line.trim() === '') {
+          segs.push({ text: '\n', style: 'NORMAL_TEXT' });
+        } else {
+          segs.push({ text: stripMd(line) + '\n', style: 'NORMAL_TEXT', inlineRanges: inlineRanges(line) });
         }
         i++;
       }
-      return segments;
+      return segs;
     }
 
-    // Strip **bold**, *italic*, `code` markers from text (for plain insertion)
-    function stripInlineMarkdown(text) {
-      return text
-        .replace(/\*\*(.+?)\*\*/g, '$1')
-        .replace(/\*(.+?)\*/g, '$1')
-        .replace(/`(.+?)`/g, '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'); // links → just anchor text
+    function stripMd(t) {
+      return t.replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1').replace(/`(.+?)`/g,'$1').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1');
     }
 
-    // Return ranges of bold/italic/code within a line (relative to stripped text)
-    function getInlineRanges(raw) {
-      const ranges = [];
-      let stripped = '';
-      let i = 0;
+    function inlineRanges(raw) {
+      const ranges = []; let s = ''; let i = 0;
       while (i < raw.length) {
-        if (raw[i] === '*' && raw[i+1] === '*') {
-          const end = raw.indexOf('**', i + 2);
-          if (end !== -1) {
-            const start = stripped.length;
-            const inner = raw.slice(i + 2, end);
-            stripped += inner;
-            ranges.push({ start, end: stripped.length, bold: true });
-            i = end + 2;
-            continue;
-          }
-        }
-        if (raw[i] === '*') {
-          const end = raw.indexOf('*', i + 1);
-          if (end !== -1) {
-            const start = stripped.length;
-            const inner = raw.slice(i + 1, end);
-            stripped += inner;
-            ranges.push({ start, end: stripped.length, italic: true });
-            i = end + 1;
-            continue;
-          }
-        }
-        if (raw[i] === '`') {
-          const end = raw.indexOf('`', i + 1);
-          if (end !== -1) {
-            const start = stripped.length;
-            const inner = raw.slice(i + 1, end);
-            stripped += inner;
-            ranges.push({ start, end: stripped.length, monospace: true });
-            i = end + 1;
-            continue;
-          }
-        }
-        // Link [text](url) → just text
-        if (raw[i] === '[') {
-          const textEnd = raw.indexOf(']', i);
-          if (textEnd !== -1 && raw[textEnd+1] === '(') {
-            const urlEnd = raw.indexOf(')', textEnd);
-            if (urlEnd !== -1) {
-              const linkText = raw.slice(i+1, textEnd);
-              const start = stripped.length;
-              stripped += linkText;
-              ranges.push({ start, end: stripped.length, bold: false });
-              i = urlEnd + 1;
-              continue;
-            }
-          }
-        }
-        stripped += raw[i];
-        i++;
+        if (raw[i]==='*'&&raw[i+1]==='*') { const e=raw.indexOf('**',i+2); if(e!==-1){const st=s.length;s+=raw.slice(i+2,e);ranges.push({start:st,end:s.length,bold:true});i=e+2;continue;} }
+        if (raw[i]==='*') { const e=raw.indexOf('*',i+1); if(e!==-1){const st=s.length;s+=raw.slice(i+1,e);ranges.push({start:st,end:s.length,italic:true});i=e+1;continue;} }
+        if (raw[i]==='`') { const e=raw.indexOf('`',i+1); if(e!==-1){const st=s.length;s+=raw.slice(i+1,e);ranges.push({start:st,end:s.length,monospace:true});i=e+1;continue;} }
+        s+=raw[i]; i++;
       }
       return ranges;
     }
 
-    // ── Step 3: Build batchUpdate requests array ──────────────────────────
-    // Strategy: insert segments one at a time, tracking cursor index.
-    // Each insert shifts all subsequent indices, so we insert in reverse order
-    // OR build the full plain text first, then apply formatting by character offset.
-    // We use the "build full plain text + track offsets" approach.
+    // Build all document segments in order
+    const allSegs = [];
+    const h = (t) => allSegs.push({ text: t+'\n', style: 'HEADING_1' });
+    const p = (t, opts={}) => allSegs.push({ text: t, style: 'NORMAL_TEXT', ...opts });
 
-    const docSegments = [];
+    h('Publish Metadata');
+    p(`Title: ${recommendedTitle}\n`, { boldPrefix: 'Title: ' });
+    p(`Target Keyword: ${keyword}\n`, { boldPrefix: 'Target Keyword: ' });
+    if (metaDesc) p(`Meta Description: ${metaDesc}\n`, { boldPrefix: 'Meta Description: ' });
+    if (urlSlug) p(`URL Slug: ${urlSlug}\n`, { boldPrefix: 'URL Slug: ' });
+    if (siteName) p(`Site: ${siteName}\n`, { boldPrefix: 'Site: ' });
+    p(`Generated: ${now}\n`, { boldPrefix: 'Generated: ' });
+    p('\n');
 
-    // Helper: add a plain section header (our own H1 doc structure labels)
-    function addSectionHeader(label) {
-      docSegments.push({ text: label + '\n', style: 'HEADING_1', isSectionLabel: true });
+    if (internalLinks) {
+      h('Internal Linking Strategy');
+      internalLinks.split('\n').forEach(l => {
+        if (!l.trim()) { p('\n'); return; }
+        if (l.trim().match(/^[-*]\s+/)) p(stripMd(l.trim().replace(/^[-*]\s+/,''))+'\n', { isBullet:true });
+        else p(stripMd(l)+'\n');
+      });
+      p('\n');
     }
 
-    function addPlain(text, style = 'NORMAL_TEXT', extras = {}) {
-      docSegments.push({ text, style, ...extras });
+    if (editorNotes) {
+      h('Editor Notes');
+      editorNotes.split('\n').forEach(l => {
+        if (!l.trim()) { p('\n'); return; }
+        if (l.trim().match(/^[-*\d]/)) p(stripMd(l.trim().replace(/^[-*]\s+/,'').replace(/^\d+\.\s+/,''))+'\n', { isBullet:true });
+        else p(stripMd(l)+'\n');
+      });
+      p('\n');
     }
 
-    // SECTION: Publish Metadata
-    addSectionHeader('Publish Metadata');
-    addPlain(`Title: ${recommendedTitle}\n`, 'NORMAL_TEXT', { boldPrefix: 'Title: ' });
-    addPlain(`Target Keyword: ${keyword}\n`, 'NORMAL_TEXT', { boldPrefix: 'Target Keyword: ' });
-    addPlain(`Meta Description: ${metaDesc}\n`, 'NORMAL_TEXT', { boldPrefix: 'Meta Description: ' });
-    addPlain(`URL Slug: ${urlSlug}\n`, 'NORMAL_TEXT', { boldPrefix: 'URL Slug: ' });
-    addPlain(`Schema Type(s): ${schemaType}\n`, 'NORMAL_TEXT', { boldPrefix: 'Schema Type(s): ' });
-    if (siteName) addPlain(`Site: ${siteName}\n`, 'NORMAL_TEXT', { boldPrefix: 'Site: ' });
-    addPlain(`Generated: ${now}\n`, 'NORMAL_TEXT', { boldPrefix: 'Generated: ' });
-    addPlain('\n');
+    h('Article');
+    parseMarkdown(articleBody).forEach(s => allSegs.push(s));
+    p('\n');
 
-    // SECTION: Internal Linking
-    addSectionHeader('Internal Linking Strategy');
-    const linkLines = (internalLinks || 'See SEO Optimizer output for details.').split('\n');
-    linkLines.forEach(l => {
-      if (l.trim().match(/^[-*]\s+/)) {
-        addPlain(l.trim().replace(/^[-*]\s+/, '') + '\n', 'NORMAL_TEXT', { isBullet: true });
-      } else {
-        addPlain(l + '\n');
-      }
+    h('Schema Markup (JSON-LD)');
+    p('Paste inside a <script type="application/ld+json"> tag in your page <head>.\n', { italic:true });
+    p('\n');
+    schemaJson.split('\n').forEach(line => allSegs.push({ text: line+'\n', style: 'NORMAL_TEXT', monospace:true }));
+
+    if (qaReport) {
+      p('\n');
+      h('QA Report');
+      qaReport.replace(/---VERDICT---[\s\S]*?---END VERDICT---/,'').trim().split('\n').forEach(l => {
+        if (!l.trim()) { p('\n'); return; }
+        p(l+'\n');
+      });
+    }
+
+    // ── Step 3: Insert segments in REVERSE ORDER ──────────────────────────
+    // Inserting at index 1 each time in reverse order means earlier segments
+    // end up at the top — indices remain stable because we always insert at 1.
+    const reversedSegs = [...allSegs].reverse();
+    const insertRequests = reversedSegs
+      .filter(s => s.text && s.text.length > 0)
+      .map(s => ({
+        insertText: { location: { index: 1 }, text: s.text }
+      }));
+
+    // Send inserts in batches of 50
+    for (let i = 0; i < insertRequests.length; i += 50) {
+      await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: insertRequests.slice(i, i+50) })
+      });
+    }
+
+    // ── Step 4: Fetch doc to get actual indices ───────────────────────────
+    // After all inserts, fetch the doc to read paragraph indices for formatting
+    const fetchRes = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
     });
-    addPlain('\n');
+    const fetchedDoc = await fetchRes.json();
 
-    // SECTION: Editor Notes
-    addSectionHeader('Editor Notes — Review Before Publishing');
-    const noteLines = (editorNotes || 'No specific notes.').split('\n');
-    noteLines.forEach(l => {
-      if (l.trim().match(/^[-*\d]/)) {
-        addPlain(l.trim().replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '') + '\n', 'NORMAL_TEXT', { isBullet: true });
-      } else {
-        addPlain(l + '\n');
-      }
-    });
-    addPlain('\n');
-
-    // SECTION: Article (parsed markdown)
-    addSectionHeader('Article');
-    const articleSegments = parseMarkdown(articleBody);
-    articleSegments.forEach(s => docSegments.push(s));
-    addPlain('\n');
-
-    // SECTION: Schema
-    addSectionHeader('Schema Markup (JSON-LD)');
-    addPlain('Paste inside a <script type="application/ld+json"> tag in your page <head>.\n', 'NORMAL_TEXT', { italic: true });
-    addPlain('\n');
-    // Schema as monospace lines
-    schemaJson.split('\n').forEach(line => {
-      docSegments.push({ text: line + '\n', style: 'NORMAL_TEXT', monospace: true });
-    });
-
-    // ── Step 4: Build plain text + offset map ─────────────────────────────
-    let fullText = '';
-    const segmentOffsets = []; // { start, end, segment }
-
-    docSegments.forEach(seg => {
-      if (seg.isTable) {
-        // Tables handled separately — placeholder for now, added via insertTable
-        segmentOffsets.push({ start: fullText.length, end: fullText.length, segment: seg });
-        return;
-      }
-      const start = fullText.length;
-      fullText += seg.text;
-      segmentOffsets.push({ start, end: fullText.length, segment: seg });
-    });
-
-    // ── Step 5: Insert all plain text ─────────────────────────────────────
-    const batchInsert = [{ insertText: { location: { index: 1 }, text: fullText } }];
-
-    await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requests: batchInsert })
-    });
-
-    // ── Step 6: Apply formatting ──────────────────────────────────────────
+    // ── Step 5: Apply formatting using fetched paragraph positions ─────────
     const fmtRequests = [];
 
-    segmentOffsets.forEach(({ start, end, segment: seg }) => {
-      if (seg.isTable || end <= start) return;
+    // Walk the doc body and match each paragraph to our segment list
+    const paragraphs = fetchedDoc.body.content.filter(el => el.paragraph);
+    let segIdx = 0;
 
-      const docStart = start + 1; // 1-indexed
-      const docEnd = end + 1;
-      const textLen = end - start;
+    for (const el of paragraphs) {
+      if (segIdx >= allSegs.length) break;
+      const seg = allSegs[segIdx];
+      const para = el.paragraph;
+      const startIndex = el.startIndex;
+      const endIndex = el.endIndex;
 
-      // Paragraph style (heading or bullet)
+      // Get plain text of this paragraph
+      const paraText = (para.elements || []).map(e => e.textRun?.content || '').join('');
+
+      // Match segment to paragraph by text content (strip newlines for comparison)
+      const segText = seg.text || '';
+      if (paraText.replace(/\n/g,'') !== segText.replace(/\n/g,'')) {
+        // Try next segment if mismatch (handles empty paragraphs)
+        segIdx++;
+        if (segIdx < allSegs.length && allSegs[segIdx].text.replace(/\n/g,'') === paraText.replace(/\n/g,'')) {
+          // matched next seg — fall through
+        } else {
+          segIdx = Math.max(0, segIdx - 1);
+          // skip this paragraph element
+          continue;
+        }
+      }
+
+      const contentEnd = Math.max(startIndex + 1, endIndex - 1);
+
+      // Paragraph style
       if (seg.style && seg.style !== 'NORMAL_TEXT') {
         fmtRequests.push({
           updateParagraphStyle: {
-            range: { startIndex: docStart, endIndex: docEnd - 1 }, // exclude \n
+            range: { startIndex, endIndex: contentEnd },
             paragraphStyle: { namedStyleType: seg.style },
             fields: 'namedStyleType'
           }
         });
       }
 
-      // Bullet list
       if (seg.isBullet) {
         fmtRequests.push({
           createParagraphBullets: {
-            range: { startIndex: docStart, endIndex: docEnd - 1 },
+            range: { startIndex, endIndex: contentEnd },
             bulletPreset: 'BULLET_DISC_CIRCLE_SQUARE'
           }
         });
       }
 
-      // Numbered list
       if (seg.isNumbered) {
         fmtRequests.push({
           createParagraphBullets: {
-            range: { startIndex: docStart, endIndex: docEnd - 1 },
+            range: { startIndex, endIndex: contentEnd },
             bulletPreset: 'NUMBERED_DECIMAL_ALPHA_ROMAN'
           }
         });
       }
 
-      // Italic (whole segment)
       if (seg.italic) {
         fmtRequests.push({
           updateTextStyle: {
-            range: { startIndex: docStart, endIndex: docEnd - 1 },
+            range: { startIndex, endIndex: contentEnd },
             textStyle: { italic: true },
             fields: 'italic'
           }
         });
       }
 
-      // Monospace (whole segment — schema, code)
-      if (seg.monospace) {
+      if (seg.bold) {
         fmtRequests.push({
           updateTextStyle: {
-            range: { startIndex: docStart, endIndex: docEnd - 1 },
-            textStyle: {
-              weightedFontFamily: { fontFamily: 'Courier New', weight: 400 },
-              fontSize: { magnitude: 10, unit: 'PT' }
-            },
-            fields: 'weightedFontFamily,fontSize'
-          }
-        });
-      }
-
-      // Bold prefix (metadata labels)
-      if (seg.boldPrefix) {
-        fmtRequests.push({
-          updateTextStyle: {
-            range: { startIndex: docStart, endIndex: docStart + seg.boldPrefix.length },
+            range: { startIndex, endIndex: contentEnd },
             textStyle: { bold: true },
             fields: 'bold'
           }
         });
       }
 
-      // Inline ranges (bold/italic/monospace within paragraph)
-      if (seg.inlineRanges && seg.inlineRanges.length > 0) {
-        seg.inlineRanges.forEach(r => {
-          const rStart = docStart + r.start;
-          const rEnd = docStart + r.end;
-          if (rEnd > rStart && rEnd <= docEnd) {
-            const textStyle = {};
-            const fields = [];
-            if (r.bold) { textStyle.bold = true; fields.push('bold'); }
-            if (r.italic) { textStyle.italic = true; fields.push('italic'); }
-            if (r.monospace) {
-              textStyle.weightedFontFamily = { fontFamily: 'Courier New', weight: 400 };
-              fields.push('weightedFontFamily');
-            }
-            if (fields.length > 0) {
-              fmtRequests.push({
-                updateTextStyle: {
-                  range: { startIndex: rStart, endIndex: rEnd },
-                  textStyle,
-                  fields: fields.join(',')
-                }
-              });
-            }
+      if (seg.monospace) {
+        fmtRequests.push({
+          updateTextStyle: {
+            range: { startIndex, endIndex: contentEnd },
+            textStyle: { weightedFontFamily: { fontFamily: 'Courier New', weight: 400 }, fontSize: { magnitude: 10, unit: 'PT' } },
+            fields: 'weightedFontFamily,fontSize'
           }
         });
       }
-    });
 
-    // Insert tables (after text, using insertTable + populateCells approach)
-    // Tables require knowing the insertion point — we handle them as post-inserts
-    // For now the table content is already included as plain text for schema tables;
-    // markdown pipe tables in the article body are parsed into proper Docs tables below.
-    const tableSegments = articleSegments.filter(s => s.isTable);
-    // Tables are complex to insert at precise positions in a doc that already has text;
-    // a pragmatic approach: append each table at end with its headers as a note.
-    // Full inline table insertion requires re-fetching doc to get updated indices.
-    // We'll handle this with a clean workaround: replace pipe table lines with
-    // structured indented text rows in the plain text pass above.
-    // (The markdown parser already skips separator rows; table rows appear as indented plain text.)
+      if (seg.boldPrefix && seg.boldPrefix.length > 0) {
+        fmtRequests.push({
+          updateTextStyle: {
+            range: { startIndex, endIndex: startIndex + seg.boldPrefix.length },
+            textStyle: { bold: true },
+            fields: 'bold'
+          }
+        });
+      }
 
-    // Send formatting requests in chunks of 50 (API limit awareness)
-    const chunkSize = 50;
-    for (let i = 0; i < fmtRequests.length; i += chunkSize) {
-      const chunk = fmtRequests.slice(i, i + chunkSize);
+      if (seg.inlineRanges && seg.inlineRanges.length > 0) {
+        seg.inlineRanges.forEach(r => {
+          const rStart = startIndex + r.start;
+          const rEnd = startIndex + r.end;
+          if (rEnd > rStart && rEnd <= endIndex) {
+            const textStyle = {}; const fields = [];
+            if (r.bold) { textStyle.bold = true; fields.push('bold'); }
+            if (r.italic) { textStyle.italic = true; fields.push('italic'); }
+            if (r.monospace) { textStyle.weightedFontFamily = { fontFamily: 'Courier New', weight: 400 }; fields.push('weightedFontFamily'); }
+            if (fields.length) fmtRequests.push({ updateTextStyle: { range: { startIndex: rStart, endIndex: rEnd }, textStyle, fields: fields.join(',') } });
+          }
+        });
+      }
+
+      segIdx++;
+    }
+
+    // Send formatting in chunks of 50
+    for (let i = 0; i < fmtRequests.length; i += 50) {
       const res = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests: chunk })
+        body: JSON.stringify({ requests: fmtRequests.slice(i, i+50) })
       });
       if (!res.ok) {
         const e = await res.json();
@@ -1233,8 +1156,13 @@ Your job is to provide a thorough research brief that includes:
 - Any unique angles competitors might miss
 - Seasonal or trending considerations
 
-4. MUST-INCLUDE FACTS & DATA POINTS
-- 5-8 specific facts, statistics, or data points to include (use real data if you know it, or note what type of data to research)
+4. FACTS & DATA POINTS
+For every fact, statistic, or data point you include, label its confidence explicitly:
+- [CONFIRMED] — you are certain this is accurate (e.g. well-known historical facts, widely published figures)
+- [APPROXIMATE] — directionally correct but exact figure may vary (e.g. "roughly 400 lighthouses in New England")
+- [UNVERIFIED] — plausible but you cannot confirm accuracy
+
+Only include [CONFIRMED] and [APPROXIMATE] data in your brief. Do NOT include [UNVERIFIED] data — omit it entirely rather than flag it for the writer to deal with. If you cannot confirm a statistic, note the type of data that would be useful here and leave the specific figure blank.
 
 5. AUDIENCE PROFILE
 - Who is searching this keyword
@@ -1291,7 +1219,7 @@ Confirm at the end: total assigned word counts = ${wordCount} words.`
   },
   {
     name: 'Writer',
-    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev, additionalContext) => `You are an expert content writer. Write a complete ${contentType} blog article following this outline precisely.
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev, additionalContext) => `You are an expert content writer. Write a complete ${contentType} blog article following this outline.
 
 OUTLINE:
 ${prev}
@@ -1300,26 +1228,27 @@ ${additionalContext ? `\nADDITIONAL CONTEXT FROM THE PUBLISHER:\n${additionalCon
 WRITING SPECS:
 - Topic: "${topic}"
 - Target keyword: "${keyword}"
-- Total target: ${wordCount} words — treat each section's assigned word count as a hard target, not a suggestion
+- Total target: ${wordCount} words
 - Tone: ${tone}
 
-DEPTH RULES — follow without exception:
-- Every section must hit its assigned word count from the outline. Do not write a thin 80-word section when the outline specifies 200.
-- Each key point in the outline must be addressed with a full explanation, not a one-liner.
-- Use specific examples, named places, real comparisons, or concrete details. Never write a vague generalization where a specific fact would serve better.
-- Short paragraphs (2-4 sentences) are required, but "short paragraphs" does not mean "few paragraphs." Write as many paragraphs as needed to hit the section's word count with substance.
+VOICE & STYLE:
+Write like a knowledgeable person who genuinely finds this topic interesting. The article should feel like it was written by a human expert — not a content machine. This means:
+- Let personality come through. A touch of warmth, wit, or enthusiasm is welcome where it fits naturally.
+- Vary sentence length. Short punchy sentences. Followed by longer ones that build on an idea and give the reader something to chew on.
+- Use conversational transitions ("Here's the thing", "Worth noting", "That said") when they serve the flow — not on every paragraph.
+- Write specific, concrete prose. Replace vague generalities with named examples, real comparisons, and tangible detail.
+- Short paragraphs (2-4 sentences) — but write as many as needed to cover each section properly.
 
-PADDING RULES — never do any of the following:
-- Repeat a point already made in a different section
-- Use filler openers ("In today's world", "Whether you're a seasoned traveler or a first-timer")
-- State the obvious ("Lighthouses are important navigational structures")
-- Add a section summary that just restates the H2 heading
-- Use hollow superlatives ("amazing", "incredible", "must-see")
+FACTS & STATISTICS:
+The research brief labels data as [CONFIRMED] or [APPROXIMATE]. Use [CONFIRMED] facts freely. Use [APPROXIMATE] figures with appropriate hedging ("roughly", "around", "estimates suggest"). Do NOT invent statistics, dates, or figures that weren't in the research brief. If a section would benefit from a stat but none was provided, make the point without one — a well-argued claim is better than a made-up number.
+
+DEPTH:
+Every section must cover its key points with full explanations. Do not write a thin 80-word section when the outline calls for 200. Each point in the outline deserves a real paragraph, not a one-liner.
 
 FORMAT:
 - Markdown headings (# H1, ## H2, ### H3)
 - Mark image suggestions with [IMAGE: specific description]
-- No emojis anywhere
+- No emojis
 
 Write the complete article now. Do not stop early.`
   },
@@ -1441,7 +1370,7 @@ Output ONLY the reasoning paragraph followed by the complete script tag. No othe
   },
   {
     name: 'QA Reviewer',
-    buildPrompt: (topic, keyword, wordCount, outline, finalArticle, cycleNum) => `You are a senior content QA reviewer. Your job is to audit this article against its outline and flag every quality issue before it gets published.
+    buildPrompt: (topic, keyword, wordCount, outline, finalArticle, cycleNum) => `You are a senior content QA reviewer. Audit this article and provide an honest, balanced assessment. Your job is to identify real problems — not manufacture issues to justify a low score.
 
 ORIGINAL OUTLINE:
 ${outline}
@@ -1455,47 +1384,49 @@ TARGET KEYWORD: "${keyword}"
 REVISION CYCLE: ${cycleNum} of 3
 PASS THRESHOLD: 8/10 overall
 
+SCORING PHILOSOPHY:
+- 8/10 means "publishable with minor edits" — this is the target, not a stretch goal
+- 9-10/10 is reserved for genuinely exceptional content
+- Do not penalize warmth, personality, or conversational tone — these are features, not flaws
+- Do not flag confident claims as "vague" just because they lack a statistic — well-argued prose is valid
+- Only flag a fact as unverified if it makes a specific numerical claim without basis
+- A section that covers its topic well is PASS even if it's slightly under word count
+
 Run the following audits:
 
 1. WORD COUNT AUDIT
 - Estimated actual word count
 - Variance from target
-- FAIL if under by more than 10%
+- Flag as concern only if under by more than 15%
 
 2. SECTION DEPTH AUDIT
 For each H2:
-- Section name | Est. word count | Outline target | Status: PASS / THIN / BLOATED
-- If THIN or BLOATED: specific note on what's missing or excessive
+- Section name | Status: PASS / THIN / BLOATED
+- THIN only if genuinely missing key points the outline required — not just "could be longer"
+- Note specifically what's missing if THIN
 
 3. FOCUS AUDIT
-For each H2:
-- Directly serves "${keyword}" reader? YES / TANGENTIAL / NO
-- If TANGENTIAL or NO: why and what to do
+Flag only sections that are clearly off-topic for a "${keyword}" reader. Do not flag sections that are contextually relevant even if not directly about the keyword.
 
 4. QUALITY FLAGS
-List every instance of:
-- Filler phrases or generic openers
-- Vague claims without supporting detail
-- Repeated points across sections
+Flag only genuine problems:
+- Specific unverified numerical statistics (not general claims)
+- Actual filler openers (not conversational transitions)
+- True repetition (same point made twice in different sections)
 - Emojis
-- Hollow superlatives
-- Self-summarizing sections
-- [VERIFY:] flags from the editor
+- Sections that add no value
 
-5. SCORES
-Rate 1-10:
-- Depth & substance: [X]/10
-- Focus & relevance: [X]/10
-- Flow & structure: [X]/10
-- Human voice: [X]/10
-- Overall: [X]/10
+5. SCORES — be fair and calibrated
+- Depth & substance: [X]/10 — does it cover the topic thoroughly?
+- Focus & relevance: [X]/10 — does it serve the reader's actual need?
+- Flow & structure: [X]/10 — does it read well from start to finish?
+- Human voice: [X]/10 — does it sound like a person, not a content farm?
+- Overall: [X]/10 — would you publish this?
 
 6. PRIORITY FIX LIST
-Top 3-5 specific changes ordered by impact. Reference exact section and what must change. Be concrete enough that a writer can act on each item without guessing.
+Only list issues that genuinely need fixing before publication. If the article is good, say so and list 1-2 minor polish items. Do not invent problems.
 
-Be direct. Do not soften findings.
-
-IMPORTANT — end your response with this exact block so it can be parsed:
+IMPORTANT — end your response with this exact block:
 ---VERDICT---
 OVERALL_SCORE: [number only, e.g. 7]
 PASS: [YES or NO]
