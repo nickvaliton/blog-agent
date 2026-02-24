@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Blog Agent Pipeline v5</title>
+<title>AI Blog Agent Pipeline v6</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
 
@@ -458,7 +458,7 @@
 
   <!-- Header -->
   <div class="header">
-    <div class="header-tag">AI Content Pipeline · v5</div>
+    <div class="header-tag">AI Content Pipeline · v6</div>
     <h1>Blog<br><span>Agent</span> Stack</h1>
     <p class="header-sub">6-agent pipeline: research → outline → write → SEO → edit → schema. Exports a publish-ready Google Doc.</p>
   </div>
@@ -1280,6 +1280,26 @@ YOUR TASK:
 5. Add transition sentences between sections where needed
 6. Ensure the CTA at the end is compelling
 7. Keep markdown heading format (# ## ###)
+
+QUALITY STANDARDS — enforce all of the following without exception:
+
+NO EMOJIS: Remove every emoji from the article. None in headings, body, CTAs, or anywhere else.
+
+HUMAN VOICE: Rewrite any sentence that sounds AI-generated. Watch for:
+- Overly formal or stiff phrasing ("It is worth noting that...", "One must consider...")
+- Generic filler ("In today's world", "Now more than ever", "Look no further")
+- Unnatural transitions ("Furthermore", "Moreover", "In conclusion")
+- Repetitive sentence structures
+- Hollow superlatives ("amazing", "incredible", "game-changing")
+Replace with direct, natural language a knowledgeable person would actually write.
+
+FACTUAL ACCURACY: Flag any claim that is vague, unverifiable, or potentially inaccurate with [VERIFY: reason]. Do not invent statistics, dates, or specific figures. If a fact was pulled from the research agent but seems uncertain, flag it rather than present it as settled.
+
+COHERENT FLOW: Read the article as a whole before editing. Ensure:
+- The intro sets up exactly what the article delivers
+- Each section logically follows the previous one
+- No section feels like it was dropped in from a different article
+- The conclusion ties back to the intro and delivers on the promise made there
 
 Then provide a FINAL PACKAGE below the article:
 
