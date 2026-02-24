@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Blog Agent Pipeline v6</title>
+<title>AI Blog Agent Pipeline v8</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
 
@@ -23,6 +23,7 @@
     --agent-4: #b847ff;
     --agent-5: #47ff8c;
     --agent-6: #ff47b8;
+    --agent-7: #ff8c47;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -151,6 +152,7 @@
   .step-4 { color: var(--agent-4); }
   .step-5 { color: var(--agent-5); }
   .step-6 { color: var(--agent-6); }
+  .step-7 { color: var(--agent-7); }
 
   /* Google Docs status pill */
   .gdocs-pill {
@@ -458,7 +460,7 @@
 
   <!-- Header -->
   <div class="header">
-    <div class="header-tag">AI Content Pipeline · v6</div>
+    <div class="header-tag">AI Content Pipeline · v8</div>
     <h1>Blog<br><span>Agent</span> Stack</h1>
     <p class="header-sub">6-agent pipeline: research → outline → write → SEO → edit → schema. Exports a publish-ready Google Doc.</p>
   </div>
@@ -487,6 +489,10 @@
     <div class="step-arrow"></div>
     <div class="pipeline-step">
       <div class="step-badge step-6" id="track-5"><span class="step-dot" id="dot-5"></span><span>06 Schema</span></div>
+    </div>
+    <div class="step-arrow"></div>
+    <div class="pipeline-step">
+      <div class="step-badge step-7" id="track-6"><span class="step-dot" id="dot-6"></span><span>07 QA</span></div>
     </div>
   </div>
 
@@ -551,6 +557,10 @@
         <label class="field-label">Author Name (for Schema)</label>
         <input type="text" id="authorName" placeholder="e.g. Nick Valiton" />
       </div>
+    </div>
+    <div class="field-group" style="margin-bottom:16px;">
+      <label class="field-label">Additional Context <span style="color:var(--muted);font-size:9px;letter-spacing:0.05em;">(OPTIONAL — facts, angles, audience notes, internal links to include, brand voice, etc.)</span></label>
+      <textarea id="additionalContext" rows="4" placeholder="e.g. This article is for first-time lighthouse visitors in New England. Include a mention of our lighthouse tour guide product. The target audience skews 35-60, family travelers. Avoid recommending anything that requires a boat."></textarea>
     </div>
     <div class="api-row">
       <div class="field-group">
@@ -649,6 +659,20 @@
         </div>
       </div>
       <div class="agent-body"><div class="agent-output" id="output-5"></div><button class="copy-btn" onclick="copyOutput(5)">COPY SCHEMA</button></div>
+    </div>
+
+    <div class="agent-card" id="card-6">
+      <div class="agent-header" onclick="toggleCard(6)">
+        <div class="agent-left">
+          <span class="agent-num step-7">07</span>
+          <div><div class="agent-name">QA Reviewer</div><div class="agent-desc">Section depth audit · focus check · thin content flags · final score</div></div>
+        </div>
+        <div class="agent-right">
+          <div class="agent-status" id="status-6"><div class="status-dot" id="statusdot-6"></div><span id="statustext-6">IDLE</span></div>
+          <span class="toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-body"><div class="agent-output" id="output-6"></div><button class="copy-btn" onclick="copyOutput(6)">COPY QA REPORT</button></div>
     </div>
 
   </div>
@@ -1146,7 +1170,8 @@ async function exportToGoogleDocs() {
 const AGENTS = [
   {
     name: 'Researcher',
-    buildPrompt: (topic, keyword, contentType, wordCount, tone) => `You are an expert SEO content researcher. A content writer needs to write a ${contentType} blog article about: "${topic}" targeting the keyword: "${keyword}".
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, additionalContext) => `You are an expert SEO content researcher. A content writer needs to write a ${contentType} blog article about: "${topic}" targeting the keyword: "${keyword}".
+${additionalContext ? `\nADDITIONAL CONTEXT FROM THE PUBLISHER:\n${additionalContext}\nTake this context into account throughout your research brief.\n` : ''}
 
 Your job is to provide a thorough research brief that includes:
 
@@ -1181,11 +1206,11 @@ Keep this tight and actionable. No fluff.`
   },
   {
     name: 'Outliner',
-    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev) => `You are an expert content strategist. Based on this research brief, create a detailed article outline.
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev, additionalContext) => `You are an expert content strategist. Based on this research brief, create a detailed article outline.
 
 RESEARCH BRIEF:
 ${prev}
-
+${additionalContext ? `\nADDITIONAL CONTEXT FROM THE PUBLISHER:\n${additionalContext}\nEnsure the outline reflects this context — including any specific angles, products, audience constraints, or internal links mentioned.\n` : ''}
 ARTICLE SPECS:
 - Topic: "${topic}"
 - Target keyword: "${keyword}"
@@ -1193,51 +1218,67 @@ ARTICLE SPECS:
 - Target word count: ${wordCount} words
 - Tone: ${tone}
 
-Create a complete outline with:
+FOCUS RULE — apply this test to every H2 before including it:
+"Does this section directly serve a reader who searched for '${keyword}'?"
+If the answer is no or only tangentially, cut or reframe it. Every H2 must earn its place by directly addressing the core topic. Do not pad the outline with loosely related sections.
 
-H1: [SEO-optimized title with keyword]
+H1: [SEO-optimized title with keyword — do not use a colon]
 
-INTRO HOOK: [2-3 sentence description of what the intro should accomplish and how to hook the reader]
+INTRO HOOK: [Describe the specific hook in 2-3 sentences — what question or problem it opens with, why the reader should keep reading]
 
-For each section (H2):
-- H2: [Section heading]
-  - Key points to cover (3-5 bullets)
-  - Recommended word count for this section
-  - Any specific data, examples, or media to include
-  - H3 subsections if applicable
+For each H2 section, provide ALL of the following fields:
+H2: [Section heading]
+- Target word count: [specific number] — distribute ${wordCount} total words proportionally by section importance, not evenly
+- Key points: [3-5 specific, distinct ideas the writer must address — not vague placeholders]
+- Depth requirement: [explicit instruction, e.g. "include at least 2 named examples", "explain the why behind each step", "contrast at least 2 approaches"]
+- Data to include: [specific facts, stats, or examples pulled from the research brief]
+- H3s: [only if content is genuinely complex enough to require subdivision]
 
-CONCLUSION: [What to summarize and what CTA to include]
-
-SIDEBAR ELEMENTS: [Any boxes, callouts, tables, or structured elements to include]
+CONCLUSION:
+- Target word count: [number]
+- Summary angle: [what to reinforce]
+- CTA: [specific ask]
 
 SEO NOTES:
-- Primary keyword placement
-- 3-4 secondary/LSI keywords to naturally incorporate
-- Suggested internal linking hooks (describe the types of pages to link to)`
+- Primary keyword placement by section
+- 3-4 LSI keywords with target sections
+- Internal linking hooks
+
+Confirm at the end: total assigned word counts = ${wordCount} words.`
   },
   {
     name: 'Writer',
-    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev) => `You are an expert content writer. Write a complete ${contentType} blog article following this outline precisely.
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, prev, additionalContext) => `You are an expert content writer. Write a complete ${contentType} blog article following this outline precisely.
 
 OUTLINE:
 ${prev}
+${additionalContext ? `\nADDITIONAL CONTEXT FROM THE PUBLISHER:\n${additionalContext}\nThis context must be reflected in the article. Follow any specific instructions about audience, products, links, restrictions, or brand voice exactly.\n` : ''}
 
 WRITING SPECS:
 - Topic: "${topic}"
 - Target keyword: "${keyword}"
-- Target word count: ${wordCount} words
+- Total target: ${wordCount} words — treat each section's assigned word count as a hard target, not a suggestion
 - Tone: ${tone}
-- Do NOT use filler phrases like "In today's world" or "In conclusion, it's clear that"
-- Use short paragraphs (2-4 sentences max)
-- Include the target keyword naturally 3-5 times
-- Write engaging, specific, useful content — not generic descriptions
+
+DEPTH RULES — follow without exception:
+- Every section must hit its assigned word count from the outline. Do not write a thin 80-word section when the outline specifies 200.
+- Each key point in the outline must be addressed with a full explanation, not a one-liner.
+- Use specific examples, named places, real comparisons, or concrete details. Never write a vague generalization where a specific fact would serve better.
+- Short paragraphs (2-4 sentences) are required, but "short paragraphs" does not mean "few paragraphs." Write as many paragraphs as needed to hit the section's word count with substance.
+
+PADDING RULES — never do any of the following:
+- Repeat a point already made in a different section
+- Use filler openers ("In today's world", "Whether you're a seasoned traveler or a first-timer")
+- State the obvious ("Lighthouses are important navigational structures")
+- Add a section summary that just restates the H2 heading
+- Use hollow superlatives ("amazing", "incredible", "must-see")
 
 FORMAT:
-- Use markdown heading hierarchy (# H1, ## H2, ### H3)
-- Add a compelling meta description suggestion at the end (135-155 characters)
-- Mark any suggested image placement with [IMAGE: description]
+- Markdown headings (# H1, ## H2, ### H3)
+- Mark image suggestions with [IMAGE: specific description]
+- No emojis anywhere
 
-Write the full article now. Hit the word count target.`
+Write the complete article now. Do not stop early.`
   },
   {
     name: 'SEO Optimizer',
@@ -1354,11 +1395,68 @@ Requirements:
 - For TouristDestination/TravelGuide: use real location data if identifiable from content
 
 Output ONLY the reasoning paragraph followed by the complete script tag. No other commentary.`
+  },
+  {
+    name: 'QA Reviewer',
+    buildPrompt: (topic, keyword, wordCount, outline, finalArticle) => `You are a senior content QA reviewer. Your job is to audit this article against its outline and flag every quality issue before it gets published.
+
+ORIGINAL OUTLINE:
+${outline}
+
+FINAL ARTICLE:
+${finalArticle}
+
+TARGET WORD COUNT: ${wordCount} words
+CORE TOPIC: "${topic}"
+TARGET KEYWORD: "${keyword}"
+
+Run the following audits and report findings for each:
+
+1. WORD COUNT AUDIT
+- Estimated actual word count of the article
+- Variance from target (over/under by how many words)
+- If under by more than 10%: flag as FAIL
+
+2. SECTION DEPTH AUDIT
+For each H2 section in the article:
+- Section name
+- Estimated word count
+- Outline target word count
+- Status: PASS / THIN / BLOATED
+- If THIN or BLOATED: specific note on what's missing or excessive
+
+3. FOCUS AUDIT
+For each H2 section:
+- Does it directly serve a reader searching for "${keyword}"? YES / TANGENTIAL / NO
+- If TANGENTIAL or NO: explain why and suggest cut or reframe
+
+4. QUALITY FLAGS
+Check for and list every instance of:
+- Filler phrases or generic openers
+- Vague claims without supporting detail
+- Repeated points across sections
+- Emojis
+- Hollow superlatives
+- Sections that summarize themselves unnecessarily
+- [VERIFY:] flags left by the editor (list each one)
+
+5. OVERALL SCORE
+Rate the article 1-10 across:
+- Depth & substance: [score]/10
+- Focus & relevance: [score]/10
+- Flow & structure: [score]/10
+- Human voice: [score]/10
+- Overall: [score]/10
+
+6. PRIORITY FIX LIST
+List the top 3-5 specific changes that would most improve this article, ordered by impact. Be concrete — reference the exact section and what needs to change.
+
+Be direct. Do not soften findings. A THIN section is THIN.`
   }
 ];
 
 // ─── State ─────────────────────────────────────────────────────────────────
-let outputs = ['', '', '', '', '', ''];
+let outputs = ['', '', '', '', '', '', ''];
 let isRunning = false;
 
 // ─── UI helpers ────────────────────────────────────────────────────────────
@@ -1394,7 +1492,7 @@ function showToast(msg, isError = false) {
 }
 
 // ─── Claude API call with streaming ────────────────────────────────────────
-async function callClaude(apiKey, prompt, outputEl) {
+async function callClaude(apiKey, prompt, outputEl, maxTokens = 4000) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -1405,7 +1503,7 @@ async function callClaude(apiKey, prompt, outputEl) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
+      max_tokens: maxTokens,
       stream: true,
       messages: [{ role: 'user', content: prompt }]
     })
@@ -1458,12 +1556,13 @@ async function runPipeline() {
   const siteName = document.getElementById('siteName').value.trim();
   const siteUrl = document.getElementById('siteUrl').value.trim();
   const authorName = document.getElementById('authorName').value.trim();
+  const additionalContext = document.getElementById('additionalContext').value.trim();
 
   if (!topic || !keyword) { alert('Please enter a topic and target keyword.'); return; }
   if (!apiKey || !apiKey.startsWith('sk-ant-')) { alert('Please enter a valid Anthropic API key (starts with sk-ant-)'); return; }
 
   isRunning = true;
-  outputs = ['', '', '', '', '', ''];
+  outputs = ['', '', '', '', '', '', ''];
   document.getElementById('runBtn').disabled = true;
   document.getElementById('runBtn').textContent = '⟳ Running...';
   document.getElementById('finalSection').classList.remove('visible');
@@ -1475,17 +1574,17 @@ async function runPipeline() {
   try {
     // Agent 1: Research
     setStatus(0, 'running', 'RUNNING');
-    outputs[0] = await callClaude(apiKey, AGENTS[0].buildPrompt(topic, keyword, contentType, wordCount, tone), document.getElementById('output-0'));
+    outputs[0] = await callClaude(apiKey, AGENTS[0].buildPrompt(topic, keyword, contentType, wordCount, tone, additionalContext), document.getElementById('output-0'));
     setStatus(0, 'done', 'DONE');
 
     // Agent 2: Outline
     setStatus(1, 'running', 'RUNNING');
-    outputs[1] = await callClaude(apiKey, AGENTS[1].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[0]), document.getElementById('output-1'));
+    outputs[1] = await callClaude(apiKey, AGENTS[1].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[0], additionalContext), document.getElementById('output-1'));
     setStatus(1, 'done', 'DONE');
 
-    // Agent 3: Write
+    // Agent 3: Write (8000 tokens for full depth)
     setStatus(2, 'running', 'RUNNING');
-    outputs[2] = await callClaude(apiKey, AGENTS[2].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[1]), document.getElementById('output-2'));
+    outputs[2] = await callClaude(apiKey, AGENTS[2].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[1], additionalContext), document.getElementById('output-2'), 8000);
     setStatus(2, 'done', 'DONE');
 
     // Agent 4: SEO
@@ -1495,7 +1594,7 @@ async function runPipeline() {
 
     // Agent 5: Edit
     setStatus(4, 'running', 'RUNNING');
-    outputs[4] = await callClaude(apiKey, AGENTS[4].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[2], outputs[3]), document.getElementById('output-4'));
+    outputs[4] = await callClaude(apiKey, AGENTS[4].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[2], outputs[3]), document.getElementById('output-4'), 8000);
     setStatus(4, 'done', 'DONE');
 
     // Agent 6: Schema
@@ -1503,10 +1602,15 @@ async function runPipeline() {
     outputs[5] = await callClaude(apiKey, AGENTS[5].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[4], outputs[3], siteName, siteUrl, authorName), document.getElementById('output-5'));
     setStatus(5, 'done', 'DONE');
 
+    // Agent 7: QA
+    setStatus(6, 'running', 'RUNNING');
+    outputs[6] = await callClaude(apiKey, AGENTS[6].buildPrompt(topic, keyword, wordCount, outputs[1], outputs[4]), document.getElementById('output-6'));
+    setStatus(6, 'done', 'DONE');
+
     showFinal();
 
   } catch (err) {
-    const runningIdx = [0,1,2,3,4,5].find(i => document.getElementById(`statusdot-${i}`).classList.contains('running'));
+    const runningIdx = [0,1,2,3,4,5,6].find(i => document.getElementById(`statusdot-${i}`).classList.contains('running'));
     if (runningIdx !== undefined) {
       setStatus(runningIdx, 'error', 'ERROR');
       document.getElementById(`output-${runningIdx}`).textContent = `Error: ${err.message}`;
@@ -1593,8 +1697,8 @@ function downloadFinal() {
 }
 
 function resetAll() {
-  outputs = ['', '', '', '', '', ''];
-  [0,1,2,3,4,5].forEach(i => {
+  outputs = ['', '', '', '', '', '', ''];
+  [0,1,2,3,4,5,6].forEach(i => {
     document.getElementById(`statusdot-${i}`).className = 'status-dot';
     document.getElementById(`statustext-${i}`).textContent = 'IDLE';
     document.getElementById(`output-${i}`).textContent = '';
