@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Blog Agent Pipeline v8</title>
+<title>AI Blog Agent Pipeline v9</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
 
@@ -444,6 +444,41 @@
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.error { border-color: var(--accent3); }
 
+  /* Cycle tracker */
+  .cycle-tracker {
+    display: none;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 16px 20px;
+  }
+  .cycle-tracker.visible { display: block; }
+  .cycle-tracker-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .cycle-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .cycle-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    transition: all 0.3s;
+  }
+  .cycle-badge.active { border-color: var(--accent); color: var(--accent); }
+  .cycle-badge.pass { border-color: #47ff8c; color: #47ff8c; }
+  .cycle-badge.fail { border-color: var(--accent3); color: var(--accent3); }
+  .cycle-badge.forced { border-color: var(--agent-3); color: var(--agent-3); }
+  .cycle-score { font-weight: 700; font-size: 13px; }
+
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); }
@@ -460,7 +495,7 @@
 
   <!-- Header -->
   <div class="header">
-    <div class="header-tag">AI Content Pipeline · v8</div>
+    <div class="header-tag">AI Content Pipeline · v9</div>
     <h1>Blog<br><span>Agent</span> Stack</h1>
     <p class="header-sub">6-agent pipeline: research → outline → write → SEO → edit → schema. Exports a publish-ready Google Doc.</p>
   </div>
@@ -572,6 +607,12 @@
       </div>
       <button class="run-btn" id="runBtn" onclick="runPipeline()">▶ Run Pipeline</button>
     </div>
+  </div>
+
+  <!-- Cycle tracker -->
+  <div class="cycle-tracker" id="cycleTracker">
+    <div class="cycle-tracker-label">Revision Cycles</div>
+    <div class="cycle-row" id="cycleRow"></div>
   </div>
 
   <!-- Agent cards -->
@@ -686,6 +727,8 @@
       <div class="meta-item">Chars: <span id="charCount">—</span></div>
       <div class="meta-item">Est. read time: <span id="readTime">—</span></div>
       <div class="meta-item">Schema types: <span id="schemaTypes">—</span></div>
+      <div class="meta-item">QA Score: <span id="qaScoreFinal">—</span></div>
+      <div class="meta-item">Cycle: <span id="cycleFinal">—</span></div>
     </div>
     <div class="final-actions">
       <button class="final-btn gdocs" id="gdocsExportBtn" onclick="exportToGoogleDocs()" disabled>📄 EXPORT TO GOOGLE DOCS</button>
@@ -1398,7 +1441,7 @@ Output ONLY the reasoning paragraph followed by the complete script tag. No othe
   },
   {
     name: 'QA Reviewer',
-    buildPrompt: (topic, keyword, wordCount, outline, finalArticle) => `You are a senior content QA reviewer. Your job is to audit this article against its outline and flag every quality issue before it gets published.
+    buildPrompt: (topic, keyword, wordCount, outline, finalArticle, cycleNum) => `You are a senior content QA reviewer. Your job is to audit this article against its outline and flag every quality issue before it gets published.
 
 ORIGINAL OUTLINE:
 ${outline}
@@ -1409,49 +1452,83 @@ ${finalArticle}
 TARGET WORD COUNT: ${wordCount} words
 CORE TOPIC: "${topic}"
 TARGET KEYWORD: "${keyword}"
+REVISION CYCLE: ${cycleNum} of 3
+PASS THRESHOLD: 8/10 overall
 
-Run the following audits and report findings for each:
+Run the following audits:
 
 1. WORD COUNT AUDIT
-- Estimated actual word count of the article
-- Variance from target (over/under by how many words)
-- If under by more than 10%: flag as FAIL
+- Estimated actual word count
+- Variance from target
+- FAIL if under by more than 10%
 
 2. SECTION DEPTH AUDIT
-For each H2 section in the article:
-- Section name
-- Estimated word count
-- Outline target word count
-- Status: PASS / THIN / BLOATED
+For each H2:
+- Section name | Est. word count | Outline target | Status: PASS / THIN / BLOATED
 - If THIN or BLOATED: specific note on what's missing or excessive
 
 3. FOCUS AUDIT
-For each H2 section:
-- Does it directly serve a reader searching for "${keyword}"? YES / TANGENTIAL / NO
-- If TANGENTIAL or NO: explain why and suggest cut or reframe
+For each H2:
+- Directly serves "${keyword}" reader? YES / TANGENTIAL / NO
+- If TANGENTIAL or NO: why and what to do
 
 4. QUALITY FLAGS
-Check for and list every instance of:
+List every instance of:
 - Filler phrases or generic openers
 - Vague claims without supporting detail
 - Repeated points across sections
 - Emojis
 - Hollow superlatives
-- Sections that summarize themselves unnecessarily
-- [VERIFY:] flags left by the editor (list each one)
+- Self-summarizing sections
+- [VERIFY:] flags from the editor
 
-5. OVERALL SCORE
-Rate the article 1-10 across:
-- Depth & substance: [score]/10
-- Focus & relevance: [score]/10
-- Flow & structure: [score]/10
-- Human voice: [score]/10
-- Overall: [score]/10
+5. SCORES
+Rate 1-10:
+- Depth & substance: [X]/10
+- Focus & relevance: [X]/10
+- Flow & structure: [X]/10
+- Human voice: [X]/10
+- Overall: [X]/10
 
 6. PRIORITY FIX LIST
-List the top 3-5 specific changes that would most improve this article, ordered by impact. Be concrete — reference the exact section and what needs to change.
+Top 3-5 specific changes ordered by impact. Reference exact section and what must change. Be concrete enough that a writer can act on each item without guessing.
 
-Be direct. Do not soften findings. A THIN section is THIN.`
+Be direct. Do not soften findings.
+
+IMPORTANT — end your response with this exact block so it can be parsed:
+---VERDICT---
+OVERALL_SCORE: [number only, e.g. 7]
+PASS: [YES or NO]
+---END VERDICT---`
+  },
+  {
+    name: 'Revision Writer',
+    buildPrompt: (topic, keyword, contentType, wordCount, tone, currentArticle, qaReport, additionalContext, cycleNum) => `You are an expert content writer performing revision cycle ${cycleNum} of 3.
+
+The QA reviewer has audited your article and identified specific issues. Your job is to fix every flagged issue and produce an improved version of the article.
+
+CURRENT ARTICLE:
+${currentArticle}
+
+QA REPORT AND REQUIRED FIXES:
+${qaReport}
+
+REVISION INSTRUCTIONS:
+- Address every item in the Priority Fix List
+- Fix every THIN section by adding the missing depth, examples, or specifics called out
+- Cut or reframe any section flagged as TANGENTIAL or NO on the focus audit
+- Remove every quality flag (filler phrases, hollow superlatives, emojis, vague claims)
+- If a section is BLOATED, trim to substance — do not just delete paragraphs, consolidate them
+- Do NOT change what is working — only fix what the QA flagged
+- Hit the ${wordCount} word target
+- Maintain ${tone} tone throughout
+- Keep markdown heading format (# ## ###)
+- No emojis anywhere
+
+ADDITIONAL CONTEXT:
+${additionalContext || 'None.'}
+
+Output the complete revised article. Do not include commentary, explanations, or notes — just the improved article.`
   }
 ];
 
@@ -1544,6 +1621,35 @@ async function callClaude(apiKey, prompt, outputEl, maxTokens = 4000) {
 }
 
 // ─── Pipeline runner ────────────────────────────────────────────────────────
+
+// Parse QA score from verdict block
+function parseQAVerdict(qaText) {
+  const scoreMatch = qaText.match(/OVERALL_SCORE:\s*(\d+(?:\.\d+)?)/);
+  const passMatch = qaText.match(/PASS:\s*(YES|NO)/);
+  const score = scoreMatch ? parseFloat(scoreMatch[1]) : null;
+  const pass = passMatch ? passMatch[1] === 'YES' : null;
+  return { score, pass };
+}
+
+// Add a cycle badge to the tracker UI
+function addCycleBadge(cycleNum, state, score) {
+  const tracker = document.getElementById('cycleTracker');
+  tracker.classList.add('visible');
+  const row = document.getElementById('cycleRow');
+  // Update existing badge or create new one
+  let badge = document.getElementById(`cycle-badge-${cycleNum}`);
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.className = 'cycle-badge';
+    badge.id = `cycle-badge-${cycleNum}`;
+    row.appendChild(badge);
+  }
+  badge.className = `cycle-badge ${state}`;
+  const scoreStr = score !== null ? `<span class="cycle-score">${score}/10</span>` : '';
+  const stateLabel = state === 'active' ? 'RUNNING' : state === 'pass' ? 'PASS' : state === 'forced' ? 'FORCED EXPORT' : 'FAIL';
+  badge.innerHTML = `Cycle ${cycleNum} ${scoreStr} <span>${stateLabel}</span>`;
+}
+
 async function runPipeline() {
   if (isRunning) return;
 
@@ -1567,47 +1673,109 @@ async function runPipeline() {
   document.getElementById('runBtn').textContent = '⟳ Running...';
   document.getElementById('finalSection').classList.remove('visible');
   document.getElementById('gdocsExportBtn').disabled = true;
+  document.getElementById('cycleTracker').classList.remove('visible');
+  document.getElementById('cycleRow').innerHTML = '';
 
-  // Persist API key
   saveApiKey(apiKey);
 
+  // Track best version across cycles
+  let bestArticle = '';
+  let bestQAReport = '';
+  let bestScore = 0;
+  let bestCycle = 1;
+  let passedQA = false;
+
   try {
-    // Agent 1: Research
+    // ── Phase 1: Research + Outline (run once) ──────────────────────────────
     setStatus(0, 'running', 'RUNNING');
     outputs[0] = await callClaude(apiKey, AGENTS[0].buildPrompt(topic, keyword, contentType, wordCount, tone, additionalContext), document.getElementById('output-0'));
     setStatus(0, 'done', 'DONE');
 
-    // Agent 2: Outline
     setStatus(1, 'running', 'RUNNING');
     outputs[1] = await callClaude(apiKey, AGENTS[1].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[0], additionalContext), document.getElementById('output-1'));
     setStatus(1, 'done', 'DONE');
 
-    // Agent 3: Write (8000 tokens for full depth)
+    // ── Phase 2: Write (first draft) ────────────────────────────────────────
     setStatus(2, 'running', 'RUNNING');
     outputs[2] = await callClaude(apiKey, AGENTS[2].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[1], additionalContext), document.getElementById('output-2'), 8000);
     setStatus(2, 'done', 'DONE');
 
-    // Agent 4: SEO
-    setStatus(3, 'running', 'RUNNING');
-    outputs[3] = await callClaude(apiKey, AGENTS[3].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[2]), document.getElementById('output-3'));
-    setStatus(3, 'done', 'DONE');
+    let currentDraft = outputs[2];
 
-    // Agent 5: Edit
-    setStatus(4, 'running', 'RUNNING');
-    outputs[4] = await callClaude(apiKey, AGENTS[4].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[2], outputs[3]), document.getElementById('output-4'), 8000);
-    setStatus(4, 'done', 'DONE');
+    // ── Phase 3: Revision loop (max 3 cycles) ───────────────────────────────
+    const MAX_CYCLES = 3;
 
-    // Agent 6: Schema
+    for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
+
+      addCycleBadge(cycle, 'active', null);
+      showToast(`Cycle ${cycle} of ${MAX_CYCLES} — running SEO → Edit → QA...`);
+
+      // SEO
+      setStatus(3, 'running', `RUNNING C${cycle}`);
+      const seoPrompt = AGENTS[3].buildPrompt(topic, keyword, contentType, wordCount, tone, currentDraft);
+      outputs[3] = await callClaude(apiKey, seoPrompt, document.getElementById('output-3'));
+      setStatus(3, 'done', `DONE C${cycle}`);
+
+      // Edit
+      setStatus(4, 'running', `RUNNING C${cycle}`);
+      const editPrompt = AGENTS[4].buildPrompt(topic, keyword, contentType, wordCount, tone, currentDraft, outputs[3]);
+      outputs[4] = await callClaude(apiKey, editPrompt, document.getElementById('output-4'), 8000);
+      setStatus(4, 'done', `DONE C${cycle}`);
+
+      // QA
+      setStatus(6, 'running', `RUNNING C${cycle}`);
+      const qaPrompt = AGENTS[6].buildPrompt(topic, keyword, wordCount, outputs[1], outputs[4], cycle);
+      outputs[6] = await callClaude(apiKey, qaPrompt, document.getElementById('output-6'));
+      setStatus(6, 'done', `DONE C${cycle}`);
+
+      // Parse verdict
+      const { score, pass } = parseQAVerdict(outputs[6]);
+      const displayScore = score !== null ? score : '?';
+
+      // Track best version
+      if (score !== null && score > bestScore) {
+        bestScore = score;
+        bestArticle = outputs[4];
+        bestQAReport = outputs[6];
+        bestCycle = cycle;
+      }
+
+      if (pass === true || (score !== null && score >= 8)) {
+        // PASS
+        addCycleBadge(cycle, 'pass', displayScore);
+        passedQA = true;
+        showToast(`Cycle ${cycle} passed QA with ${displayScore}/10 — generating schema...`);
+        break;
+      } else {
+        // FAIL
+        addCycleBadge(cycle, 'fail', displayScore);
+
+        if (cycle === MAX_CYCLES) {
+          // Force export best version
+          addCycleBadge(cycle, 'forced', displayScore);
+          showToast(`Max cycles reached. Exporting best version (Cycle ${bestCycle}, ${bestScore}/10).`, true);
+          // Use best version for export
+          outputs[4] = bestArticle;
+          outputs[6] = bestQAReport;
+          break;
+        }
+
+        // Send back to Revision Writer
+        showToast(`Cycle ${cycle} scored ${displayScore}/10 — sending back to Writer for revision...`);
+        setStatus(2, 'running', `REVISING C${cycle + 1}`);
+        const revisionPrompt = AGENTS[7].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[4], outputs[6], additionalContext, cycle + 1);
+        currentDraft = await callClaude(apiKey, revisionPrompt, document.getElementById('output-2'), 8000);
+        setStatus(2, 'done', `REVISED C${cycle + 1}`);
+        outputs[2] = currentDraft;
+      }
+    }
+
+    // ── Phase 4: Schema (always runs on final article) ──────────────────────
     setStatus(5, 'running', 'RUNNING');
     outputs[5] = await callClaude(apiKey, AGENTS[5].buildPrompt(topic, keyword, contentType, wordCount, tone, outputs[4], outputs[3], siteName, siteUrl, authorName), document.getElementById('output-5'));
     setStatus(5, 'done', 'DONE');
 
-    // Agent 7: QA
-    setStatus(6, 'running', 'RUNNING');
-    outputs[6] = await callClaude(apiKey, AGENTS[6].buildPrompt(topic, keyword, wordCount, outputs[1], outputs[4]), document.getElementById('output-6'));
-    setStatus(6, 'done', 'DONE');
-
-    showFinal();
+    showFinal(bestScore, bestCycle, passedQA);
 
   } catch (err) {
     const runningIdx = [0,1,2,3,4,5,6].find(i => document.getElementById(`statusdot-${i}`).classList.contains('running'));
@@ -1624,8 +1792,8 @@ async function runPipeline() {
   document.getElementById('runBtn').textContent = '▶ Run Pipeline';
 }
 
-function showFinal() {
-  const text = outputs[4]; // Show article in final panel
+function showFinal(qaScore, cycle, passed) {
+  const text = outputs[4];
   const finalSection = document.getElementById('finalSection');
   document.getElementById('finalOutput').textContent = text;
   finalSection.classList.add('visible');
@@ -1636,13 +1804,14 @@ function showFinal() {
   document.getElementById('charCount').textContent = text.length.toLocaleString();
   document.getElementById('readTime').textContent = `~${Math.ceil(words / 220)} min`;
 
-  // Extract schema types from agent 6 output
   const schemaOutput = outputs[5] || '';
   const typeMatches = schemaOutput.match(/"@type":\s*"([^"]+)"/g) || [];
   const types = [...new Set(typeMatches.map(m => m.match(/"([^"]+)"$/)[1]))].join(', ');
   document.getElementById('schemaTypes').textContent = types || '—';
 
-  // Enable Google Docs export button
+  document.getElementById('qaScoreFinal').textContent = qaScore ? `${qaScore}/10 ${qaScore >= 8 ? '✓' : '⚠'}` : '—';
+  document.getElementById('cycleFinal').textContent = cycle ? `${cycle} of 3` : '—';
+
   document.getElementById('gdocsExportBtn').disabled = false;
 }
 
@@ -1710,6 +1879,10 @@ function resetAll() {
   });
   document.getElementById('finalSection').classList.remove('visible');
   document.getElementById('gdocsExportBtn').disabled = true;
+  document.getElementById('cycleTracker').classList.remove('visible');
+  document.getElementById('cycleRow').innerHTML = '';
+  document.getElementById('qaScoreFinal').textContent = '—';
+  document.getElementById('cycleFinal').textContent = '—';
 }
 </script>
 
